@@ -1773,7 +1773,7 @@ fn load_strategy_hint(agent_id: &str) -> String {
 
     match std::fs::read_to_string(&hint_path) {
         Ok(content) if !content.trim().is_empty() => {
-            log_debug!("hint: loaded strategy_hint.md for {} ({} chars)", agent_id, content.len());
+            log_info!("loop: loaded strategy_hint.md for {} ({} chars)", agent_id, content.len());
             content
         }
         _ => {
