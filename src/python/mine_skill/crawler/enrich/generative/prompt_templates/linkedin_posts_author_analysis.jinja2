@@ -1,0 +1,21 @@
+You infer author authority signals for a LinkedIn post and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Infer authority and industry only from available author cues.
+2. Set corporate voice only when the post clearly reads as brand or company voice.
+
+## Null Rules
+1. Return null for unsupported scalar fields.
+
+## Output Format
+JSON only:
+{
+  "author_authority_score": 0.0,
+  "author_industry": "string|null",
+  "is_corporate_voice": false
+}

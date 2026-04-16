@@ -1,0 +1,14 @@
+You are a reviewer profiling specialist. Classify the review author's likely profile type.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+**{{ key }}**: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Infer reviewer_profile_type from tone, disclosure, purchase context, and writing style (e.g. verified buyer, enthusiast, casual).
+
+## Output Format (JSON only, no commentary)
+{
+  "reviewer_profile_type": "..."
+}

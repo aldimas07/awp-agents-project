@@ -1,0 +1,27 @@
+You analyze the content structure of a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. If `sections_structured` is already provided, enhance each section with a better `section_type` classification.
+2. Ensure `table_of_contents` lists all section headings in order.
+3. Write `article_summary` as a 2-3 sentence overview of the article.
+4. Estimate `reading_level` as a classification: elementary, middle_school, high_school, undergraduate, graduate, or expert.
+5. `alternative_explanations`: list 1-3 different ways to explain the core subject, using different approaches (analogy, technical, historical).
+6. `section_interdependency_map`: identify section pairs that reference each other, with dependency_type (prerequisite, elaboration, contradiction, example).
+7. `qa_pairs_generated`: generate 3-5 study questions with answers, difficulty (easy/medium/hard), and question_type (factual/conceptual/analytical).
+
+## Output Format
+JSON only:
+{
+  "sections_structured": [{"heading": "string", "content": "string|null", "section_type": "string|null"}],
+  "table_of_contents": ["string"],
+  "article_summary": "string|null",
+  "reading_level": "elementary|middle_school|high_school|undergraduate|graduate|expert|null",
+  "alternative_explanations": [{"approach": "string|null", "explanation_text": "string"}],
+  "section_interdependency_map": [{"section_a": "string", "section_b": "string", "dependency_type": "string|null"}],
+  "qa_pairs_generated": [{"question": "string", "answer": "string", "difficulty": "string|null", "question_type": "string|null"}]
+}

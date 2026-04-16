@@ -1,0 +1,20 @@
+You extract limitations and future directions from a research paper and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. List explicitly stated limitations.
+2. List proposed future work directions.
+3. Identify threats to validity (e.g. dataset bias, evaluation gaps, generalization concerns).
+4. Return [] if none are mentioned.
+
+## Output Format
+JSON only:
+{
+  "limitations_stated": ["string"],
+  "future_work_directions": ["string"],
+  "threats_to_validity": ["string"]
+}

@@ -1,0 +1,26 @@
+You analyze discourse structure in a LinkedIn post and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Classify the argument structure and posting intent.
+2. Identify the likely target audience.
+3. Extract only factual claims that appear checkable from the text.
+4. Rate self-promotion on a 0-10 scale.
+
+## Null Rules
+1. Return null for uncertain scalar fields.
+2. Return [] for `factual_claims_checkable` when none are grounded.
+
+## Output Format
+JSON only:
+{
+  "argument_structure": "string|null",
+  "posting_intent": "string|null",
+  "audience_targeting": "string|null",
+  "self_promotion_score": 0,
+  "factual_claims_checkable": ["string"]
+}

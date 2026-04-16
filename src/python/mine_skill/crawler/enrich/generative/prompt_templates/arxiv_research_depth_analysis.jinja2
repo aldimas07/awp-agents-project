@@ -1,0 +1,40 @@
+You perform deep critical analysis of a research paper and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. `mathematical_complexity_score`: 1 (no math) to 5 (heavy proofs/derivations).
+2. `mathematical_complexity_evidence`: brief justification for the score.
+3. `novelty_delta_assessment`: what's the novelty claim, actual delta vs prior work, and closest prior work.
+4. `methodology_transferability`: list domains/tasks where the method could be applied.
+5. `claim_verification_notes`: for key claims, assess evidence strength (strong/moderate/weak/unsupported) with detail and potential issues.
+6. `internal_consistency_issues`: contradictions or inconsistencies found.
+7. `missing_baselines_or_ablations`: missing experiments with importance (critical/recommended/minor).
+8. `cherry_picking_indicators`: signs of selective reporting with severity.
+9. `writing_quality_assessment`: overall quality (excellent/good/average/poor) with clarity and organization scores.
+10. `experiment_rigor_score`: 1-10 with positive and negative indicators.
+11. `readability_for_audience`: assess for in_field, outside_field, practitioners, students.
+12. `follow_up_research_questions`: 3-5 open questions inspired by the paper.
+
+## Null Rules
+Return null for fields that cannot be assessed from available source data.
+
+## Output Format
+JSON only:
+{
+  "mathematical_complexity_score": 3,
+  "mathematical_complexity_evidence": "string|null",
+  "novelty_delta_assessment": {"novelty_claim": "string|null", "actual_delta": "string|null", "closest_prior_work": "string|null"},
+  "methodology_transferability": ["string"],
+  "claim_verification_notes": [{"claim": "string", "evidence_strength": "strong|moderate|weak|unsupported|null", "evidence_detail": "string|null", "potential_issues": "string|null"}],
+  "internal_consistency_issues": [{"issue": "string", "location_a": "string|null", "location_b": "string|null", "severity": "minor|moderate|critical|null"}],
+  "missing_baselines_or_ablations": [{"missing_element": "string", "importance": "critical|recommended|minor|null"}],
+  "cherry_picking_indicators": [{"indicator": "string", "severity": "string|null"}],
+  "writing_quality_assessment": {"overall_quality": "excellent|good|average|poor|null", "clarity_score": 0.0, "organization_score": 0.0, "common_problems": ["string"]},
+  "experiment_rigor_score": {"score": 0, "positive_indicators": ["string"], "negative_indicators": ["string"]},
+  "readability_for_audience": {"in_field": "string|null", "outside_field": "string|null", "practitioners": "string|null", "students": "string|null"},
+  "follow_up_research_questions": ["string"]
+}

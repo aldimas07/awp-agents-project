@@ -1,0 +1,19 @@
+You analyze entity relationships and external links from a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. `related_entities`: identify entities that have a meaningful relationship to the article subject. Classify relation_type (parent_of, subsidiary_of, founded_by, located_in, influenced_by, competed_with, etc.) and whether the relationship is bidirectional.
+2. `external_links_classified`: classify each external link by source_type (academic/news/government/social/official/other) and reliability_tier (high/medium/low).
+3. `controversy_map`: if the subject is controversial, map opposing positions with their supporting arguments and key proponents.
+
+## Output Format
+JSON only:
+{
+  "related_entities": [{"entity": "string", "relation_type": "string|null", "bidirectional": true}],
+  "external_links_classified": [{"url": "string", "source_type": "string|null", "reliability_tier": "string|null"}],
+  "controversy_map": [{"stance": "string", "supporting_arguments": ["string"], "key_proponents": ["string"]}]
+}

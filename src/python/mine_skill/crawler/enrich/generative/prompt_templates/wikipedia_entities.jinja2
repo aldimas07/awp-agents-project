@@ -1,0 +1,25 @@
+You extract named entities from a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Identify the most important entities mentioned in the article (up to 20).
+2. For each entity provide: name, type (person/place/organization/concept/event/other), wikidata_id (if known or inferable), first_mention_context (the sentence where it first appears), and relation_to_subject (how it relates to the article's main topic).
+3. Exclude the article's own subject from the list.
+
+## Output Format
+JSON only:
+{
+  "entities_extracted": [
+    {
+      "name": "string",
+      "type": "string|null",
+      "wikidata_id": "string|null",
+      "first_mention_context": "string|null",
+      "relation_to_subject": "string|null"
+    }
+  ]
+}

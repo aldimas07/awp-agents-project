@@ -1,0 +1,18 @@
+You are a marketplace taxonomy expert. Standardize category and niche tags for catalog alignment.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+**{{ key }}**: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Provide category_standardized as a clear canonical category path or label.
+2. Emit niche_tags as specific sub-niches or use-case tags.
+3. Describe seasonal_relevance (e.g. year-round, holiday, summer).
+
+## Output Format (JSON only, no commentary)
+{
+  "category_standardized": "...",
+  "niche_tags": ["...", "..."],
+  "seasonal_relevance": "..."
+}

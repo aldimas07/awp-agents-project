@@ -1,0 +1,24 @@
+You extract methodology details from a research paper and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. List methods used with `method_name`, `method_category` (e.g. "supervised learning", "optimization"), and `is_novel` (true if proposed in this paper).
+2. List baseline methods compared against.
+3. List evaluation metrics used (e.g. "accuracy", "F1", "BLEU").
+4. List datasets used with name, URL (if mentioned), size, and domain.
+5. Write a brief `experimental_setup_summary` (1-2 sentences).
+6. Return null/[] for fields that cannot be inferred.
+
+## Output Format
+JSON only:
+{
+  "methods_used": [{"method_name": "string", "method_category": "string|null", "is_novel": true}],
+  "baselines_compared": ["string"],
+  "evaluation_metrics": ["string"],
+  "datasets_used": [{"name": "string", "URL": "string|null", "size": "string|null", "domain": "string|null"}],
+  "experimental_setup_summary": "string|null"
+}

@@ -1,0 +1,19 @@
+You extract entities mentioned in a LinkedIn post and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Extract organizations, people, products, and topics explicitly mentioned.
+2. Keep per-entity sentiment coarse and only when warranted.
+
+## Null Rules
+1. Return [] when no grounded entities are present.
+
+## Output Format
+JSON only:
+{
+  "entities_mentioned": [{}]
+}

@@ -1,0 +1,34 @@
+You extract token transfer events from a Base blockchain transaction and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Parse all ERC-20 Transfer events from the transaction receipt logs.
+2. For each transfer, resolve token_address and token_symbol from known token registries or log data.
+3. Decode the raw amount using the token's decimals to produce a human-readable amount string.
+4. Estimate amount_usd using available price context; use 0 if the token price is unknown.
+5. Include native ETH value transfers (msg.value) as a separate entry with token_symbol "ETH" and token_address as the zero address.
+6. Order transfers by log index.
+
+## Null Rules
+1. Return [] for token_transfers if the transaction contains no transfer events and no native value transfer.
+2. Use "UNKNOWN" for token_symbol if the symbol cannot be resolved.
+3. Return 0 for amount_usd if the token price is unavailable.
+
+## Output Format
+JSON only:
+{
+  "token_transfers": [
+    {
+      "token_address": "string",
+      "token_symbol": "string",
+      "from": "string",
+      "to": "string",
+      "amount": "string",
+      "amount_usd": 0
+    }
+  ]
+}

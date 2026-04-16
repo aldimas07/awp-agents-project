@@ -1,0 +1,26 @@
+You decode transaction input data from a Base blockchain transaction and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Extract the 4-byte function selector from the input data and resolve it to a known function_name and full function_signature when possible.
+2. Decode the ABI-encoded parameters into decoded_parameters as a key-value object, using parameter names when the ABI is available, otherwise use positional keys (param0, param1, ...).
+3. Write human_readable_action as a single plain-English sentence describing what this transaction does (e.g. "Swapped 1.5 ETH for 3000 USDC on Uniswap V3").
+4. For raw ETH transfers with empty input (0x), set function_name to "transfer" and decoded_parameters to {}.
+
+## Null Rules
+1. Return null for function_name and function_signature if the selector cannot be resolved.
+2. Return {} for decoded_parameters if input data is empty (0x) or cannot be decoded.
+3. Return null for human_readable_action if neither the function nor the parameters can be determined.
+
+## Output Format
+JSON only:
+{
+  "function_name": "string|null",
+  "function_signature": "string|null",
+  "decoded_parameters": {},
+  "human_readable_action": "string|null"
+}

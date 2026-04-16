@@ -1,0 +1,21 @@
+You classify a Wikipedia article by topic and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Clean `categories_cleaned`: remove Wikipedia maintenance categories, stubs, and meta-categories.
+2. Build `topic_hierarchy` from broad to specific (e.g. ["Science", "Computer Science", "Machine Learning"]).
+3. Assign `domain` as a single primary domain (e.g. "computer_science", "history", "biology").
+4. Extract `subject_tags`: 3-12 topical tags derived from categories and content.
+
+## Output Format
+JSON only:
+{
+  "categories_cleaned": ["string"],
+  "topic_hierarchy": ["string"],
+  "domain": "string|null",
+  "subject_tags": ["string"]
+}

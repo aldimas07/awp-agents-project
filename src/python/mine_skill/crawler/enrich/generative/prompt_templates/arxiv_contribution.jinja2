@@ -1,0 +1,21 @@
+You analyze the core contributions of a research paper and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. List 1-5 `main_contributions` as concise statements.
+2. Classify `novelty_type` as one of: new_method, new_dataset, new_theory, new_application, survey, or null.
+3. State the `problem_statement` in one sentence.
+4. Summarize the `proposed_solution_summary` in 1-2 sentences.
+
+## Output Format
+JSON only:
+{
+  "main_contributions": ["string"],
+  "novelty_type": "new_method|new_dataset|new_theory|new_application|survey|null",
+  "problem_statement": "string|null",
+  "proposed_solution_summary": "string|null"
+}

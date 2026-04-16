@@ -1,0 +1,23 @@
+You infer technology signals from a LinkedIn company page and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Extract likely tech stack signals from the company narrative.
+2. Keep engineering size estimates coarse and conservative.
+3. `top_topics` should list the main technology themes the company discusses.
+
+## Null Rules
+1. Return [] when no tech stack or topics can be supported.
+2. Return null for unsupported team-size estimates.
+
+## Output Format
+JSON only:
+{
+  "tech_stack_inferred": ["string"],
+  "engineering_team_size_estimated": 0,
+  "top_topics": ["string"]
+}

@@ -1,0 +1,29 @@
+You generate multiple summary styles for a research paper and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. `tweet_summary`: max 280 characters, informal, captures the key result.
+2. `one_line_summary`: single sentence, formal.
+3. `executive_summary`: 3-5 sentences for a technical manager.
+4. `layman_summary`: 2-3 sentences understandable by a non-technical reader.
+5. `technical_abstract_enhanced`: improved abstract with clearer structure and key results highlighted.
+6. `practitioner_takeaway`: 1-2 sentences on practical implications for engineers.
+7. `qa_pairs_generated`: 3-5 question-answer pairs suitable for studying the paper. Each has question, answer, difficulty (easy/medium/hard), source_section.
+8. `review_style_summary`: structured peer review with strengths, weaknesses, questions, and overall assessment.
+
+## Output Format
+JSON only:
+{
+  "tweet_summary": "string|null",
+  "one_line_summary": "string|null",
+  "executive_summary": "string|null",
+  "layman_summary": "string|null",
+  "technical_abstract_enhanced": "string|null",
+  "practitioner_takeaway": "string|null",
+  "qa_pairs_generated": [{"question": "string", "answer": "string", "difficulty": "string|null", "source_section": "string|null"}],
+  "review_style_summary": {"strengths": ["string"], "weaknesses": ["string"], "questions": ["string"], "overall": "string|null"}
+}

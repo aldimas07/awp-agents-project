@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LinkedIn Profile",
+  "type": "object",
+  "properties": {
+    "public_identifier": { "type": "string" },
+    "title": { "type": "string" },
+    "name": { "type": "string" },
+    "headline": { "type": "string" },
+    "about": { "type": "string" },
+    "city": { "type": "string" },
+    "country_code": { "type": "string" },
+    "profile_url": { "type": "string", "format": "uri" },
+    "avatar": { "type": "string", "format": "uri" },
+    "banner_image": { "type": "string", "format": "uri" },
+    "follower_count": { "type": "integer" },
+    "connection_count": { "type": "integer" },
+    "current_company": { "type": "string" },
+    "current_title": { "type": "string" },
+    "experience": { "type": "array", "items": { "type": "object" } },
+    "education": { "type": "array", "items": { "type": "object" } },
+    "skills": { "type": "array", "items": { "type": "string" } },
+    "languages": { "type": "array", "items": { "type": "string" } },
+    "canonical_url": { "type": "string", "format": "uri" },
+    "dedup_key": { "type": "string" }
+  },
+  "required": ["public_identifier", "canonical_url"]
+}

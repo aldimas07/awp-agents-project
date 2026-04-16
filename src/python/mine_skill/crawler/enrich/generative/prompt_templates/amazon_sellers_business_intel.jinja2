@@ -1,0 +1,27 @@
+You analyze Amazon seller business intelligence signals and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Infer seller operating maturity and geographic focus only from the provided source.
+2. Use `seller_legitimacy_signals` for positive and negative trust indicators grounded in seller info, policies, and feedback context.
+3. Use `seller_origin_country_inferred` only when there is supporting address, business name, shipping, or policy evidence.
+4. Keep confidence-like numeric values between 0 and 1.
+
+## Null Rules
+1. Return null when a scalar cannot be grounded.
+2. Return {} for object fields when evidence is insufficient.
+
+## Output Format
+JSON only:
+{
+  "years_on_amazon": "integer|null",
+  "growth_trajectory": "string|null",
+  "geographic_focus": "string|null",
+  "fulfillment_strategy": "string|null",
+  "seller_legitimacy_signals": {},
+  "seller_origin_country_inferred": {}
+}

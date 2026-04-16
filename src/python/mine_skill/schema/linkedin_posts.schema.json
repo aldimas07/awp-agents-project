@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LinkedIn Post",
+  "type": "object",
+  "properties": {
+    "activity_urn": { "type": "string" },
+    "author_name": { "type": "string" },
+    "author_headline": { "type": "string" },
+    "title": { "type": "string" },
+    "text": { "type": "string" },
+    "post_type": { "type": "string" },
+    "posted_date": { "type": "string" },
+    "likes_count": { "type": "integer" },
+    "comments_count": { "type": "integer" },
+    "shares_count": { "type": "integer" },
+    "media_urls": { "type": "array", "items": { "type": "string" } },
+    "hashtags": { "type": "array", "items": { "type": "string" } },
+    "mentioned_profiles": { "type": "array", "items": { "type": "string" } },
+    "canonical_url": { "type": "string", "format": "uri" },
+    "dedup_key": { "type": "string" }
+  },
+  "required": ["activity_urn", "canonical_url"]
+}

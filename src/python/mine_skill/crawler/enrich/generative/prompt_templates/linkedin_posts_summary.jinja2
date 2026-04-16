@@ -1,0 +1,25 @@
+You summarize a LinkedIn post and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Write a one-line summary of the post's main point.
+2. Extract the clearest actionable takeaway.
+3. Classify thought leadership depth conservatively.
+4. For alias groups: `self_promotion_score` (0-10) and `argument_structure` may also be requested.
+
+## Null Rules
+1. Return null for unsupported scalar fields.
+
+## Output Format
+JSON only:
+{
+  "post_one_liner": "string|null",
+  "post_takeaway": "string|null",
+  "thought_leadership_depth": "string|null",
+  "self_promotion_score": 0,
+  "argument_structure": "string|null"
+}

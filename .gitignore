@@ -1,0 +1,28 @@
+# Git Ignore for AWP Agents Project
+
+# Python virtual environment
+.venv/
+
+# Rust target directory
+**/target/
+
+# Agent-specific runtime data (wallets, logs, state)
+agents/
+
+# Generated data files
+data/
+
+# Environment variables (contains secrets)
+config/.env
+
+# OS-specific temporary files
+*.log
+*.pid
+*.tmp
+.DS_Store
+thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class

@@ -1,0 +1,22 @@
+You assess bias and neutrality of a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. `bias_detection`: identify instances of bias with section_heading, bias_type (political/cultural/geographic/gender/corporate/systemic), evidence_quote_location (quote the biased phrase), severity (low/medium/high), and suggested neutral framing.
+2. `missing_perspectives`: list viewpoints or perspectives not represented in the article.
+3. `weasel_words_detected`: find vague or weasel phrasing (e.g. "some experts say", "it is widely believed") with the phrase, location, and the issue.
+4. `citation_needed_gaps`: identify claims that lack citations with the claim text, section heading, claim_type (statistical/historical/causal/opinion), and importance (low/medium/high).
+5. Return [] for categories with no findings.
+
+## Output Format
+JSON only:
+{
+  "bias_detection": [{"section_heading": "string|null", "bias_type": "string|null", "evidence_quote_location": "string|null", "severity": "string|null", "suggested_neutral_framing": "string|null"}],
+  "missing_perspectives": ["string"],
+  "weasel_words_detected": [{"phrase": "string", "location": "string|null", "issue": "string|null"}],
+  "citation_needed_gaps": [{"claim": "string", "section": "string|null", "claim_type": "string|null", "importance": "string|null"}]
+}

@@ -1,0 +1,20 @@
+You are a visual merchandising analyst. Inventory gallery assets and rate presentation quality.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+**{{ key }}**: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Count image_count as an integer.
+2. Set has_lifestyle_images, has_infographic, has_video from visible gallery or media cues.
+3. Score visual_quality_score from 0 to 1 for clarity and professionalism.
+
+## Output Format (JSON only, no commentary)
+{
+  "image_count": 0,
+  "has_lifestyle_images": true,
+  "has_infographic": true,
+  "has_video": true,
+  "visual_quality_score": 0.0
+}

@@ -1,0 +1,28 @@
+You extract cross-platform identifiers from a research paper and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. `author_linkedin_hints`: for key authors, provide name, affiliation, and a search query hint for finding their LinkedIn profile.
+2. `github_repos_mentioned`: extract any GitHub/GitLab repository URLs.
+3. `project_urls_mentioned`: extract project pages, demo sites, or documentation URLs.
+4. `wikipedia_concept_hints`: list Wikipedia article titles for key concepts discussed.
+5. `dataset_source_urls`: extract URLs where datasets can be downloaded.
+6. `related_arxiv_ids_mentioned`: extract any arXiv IDs cited in the paper.
+7. Return [] for empty collections.
+
+## Output Format
+JSON only:
+{
+  "linkable_identifiers": {
+    "author_linkedin_hints": [{"name": "string", "affiliation": "string|null", "query_hint": "string|null"}],
+    "github_repos_mentioned": ["string"],
+    "project_urls_mentioned": ["string"],
+    "wikipedia_concept_hints": ["string"],
+    "dataset_source_urls": ["string"],
+    "related_arxiv_ids_mentioned": ["string"]
+  }
+}

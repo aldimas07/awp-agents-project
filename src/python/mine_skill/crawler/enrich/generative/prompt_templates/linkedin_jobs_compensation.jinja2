@@ -1,0 +1,20 @@
+You infer compensation signals from a LinkedIn job posting and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Infer salary range only when the source gives enough evidence.
+2. Infer equity signal conservatively.
+
+## Null Rules
+1. Return null for unsupported fields.
+
+## Output Format
+JSON only:
+{
+  "salary_range_inferred": "string|null",
+  "equity_compensation_signal": "string|null"
+}

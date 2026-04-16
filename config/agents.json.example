@@ -1,0 +1,32 @@
+[
+  {
+    "agent_id": "agent-01",
+    "initial_persona": "degen",
+    "custom_interval": 110
+  },
+  {
+    "agent_id": "agent-02",
+    "initial_persona": "sniper",
+    "custom_interval": 115
+  },
+  {
+    "agent_id": "agent-03",
+    "initial_persona": "conservative",
+    "custom_interval": 120
+  },
+  {
+    "agent_id": "agent-04",
+    "initial_persona": "contrarian",
+    "custom_interval": 125
+  },
+  {
+    "agent_id": "agent-05",
+    "initial_persona": "none",
+    "custom_interval": 130
+  },
+  {
+    "agent_id": "agent-06",
+    "initial_persona": "degen",
+    "custom_interval": 135
+  }
+]

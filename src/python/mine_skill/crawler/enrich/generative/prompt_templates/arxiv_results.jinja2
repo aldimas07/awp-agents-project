@@ -1,0 +1,22 @@
+You extract experimental results from a research paper and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Extract key quantitative results with metric name, value, baseline comparison, and improvement percentage.
+2. Determine if the paper claims state-of-the-art results.
+3. Check whether statistical significance tests are reported.
+4. Note any reproducibility indicators (code released, seeds reported, hardware details, etc.).
+5. Return null for fields that cannot be confidently determined.
+
+## Output Format
+JSON only:
+{
+  "key_results": [{"metric": "string", "value": "string", "baseline_comparison": "string|null", "improvement_percentage": "string|null"}],
+  "state_of_art_claimed": true,
+  "statistical_significance_reported": true,
+  "reproducibility_indicators": "string|null"
+}

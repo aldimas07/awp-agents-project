@@ -1,0 +1,24 @@
+You analyze inter-paper relationships from a research paper and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Identify papers this work `builds_upon` (key prior work that this paper extends).
+2. Identify papers this work `contradicts` (findings or claims that are challenged).
+3. Identify papers this work `replicates` (reproduced experiments).
+4. Identify papers whose datasets are reused (`uses_dataset_from`).
+5. Identify papers whose methods are reused (`uses_method_from`).
+6. Use paper titles or arXiv IDs as identifiers. Return [] if not applicable.
+
+## Output Format
+JSON only:
+{
+  "builds_upon": ["string"],
+  "contradicts": ["string"],
+  "replicates": ["string"],
+  "uses_dataset_from": ["string"],
+  "uses_method_from": ["string"]
+}

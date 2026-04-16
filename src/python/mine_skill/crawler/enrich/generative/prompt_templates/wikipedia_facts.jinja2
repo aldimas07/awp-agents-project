@@ -1,0 +1,28 @@
+You extract structured fact triples from a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Extract 5-20 key factual statements as subject-predicate-object triples.
+2. Assign `confidence_score` from 0 to 1 based on how explicitly the fact is stated.
+3. Set `temporal_scope` if the fact is time-bound (e.g. "as of 2024", "1990-2000").
+4. Include `source_sentence` — the original sentence the fact is derived from.
+5. Prefer concrete, verifiable facts over opinions or interpretations.
+
+## Output Format
+JSON only:
+{
+  "structured_facts": [
+    {
+      "subject": "string",
+      "predicate": "string",
+      "object": "string",
+      "confidence_score": 0.0,
+      "temporal_scope": "string|null",
+      "source_sentence": "string|null"
+    }
+  ]
+}

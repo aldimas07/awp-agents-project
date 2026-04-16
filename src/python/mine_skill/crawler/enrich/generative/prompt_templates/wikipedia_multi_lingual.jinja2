@@ -1,0 +1,19 @@
+You assess multilingual coverage of a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. `cross_language_links`: pass through from source if available (lang_code → URL map).
+2. `translation_coverage_score`: 0 (no translations) to 1 (available in all major languages). Estimate based on the number of language links and topic importance.
+3. `entity_name_translations`: pass through from source if available (lang_code → localized name).
+
+## Output Format
+JSON only:
+{
+  "cross_language_links": {},
+  "translation_coverage_score": 0.0,
+  "entity_name_translations": {}
+}

@@ -1,0 +1,35 @@
+You infer credibility signals from a LinkedIn profile and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Assess influence, credibility, and professional authority from available signals.
+2. Estimate profile completeness and freshness conservatively.
+3. Identify motivation signals, side projects, and cold outreach hooks.
+4. Flag internal consistency issues only when clearly present.
+5. Classify content creator tier and content activity level.
+
+## Null Rules
+1. Return null for uncertain scalar fields.
+2. Return [] for array fields when nothing reliable is present.
+
+## Output Format
+JSON only:
+{
+  "influence_score": 0,
+  "content_creator_tier": "string|null",
+  "engagement_rate": 0.0,
+  "credibility_assessment": "string|null",
+  "content_activity_level": "string|null",
+  "professional_cluster": "string|null",
+  "profile_completeness_score": 0,
+  "last_active_estimate": "string|null",
+  "profile_freshness_grade": "string|null",
+  "motivation_signals": ["string"],
+  "side_project_signals": ["string"],
+  "cold_outreach_hooks": ["string"],
+  "internal_consistency_flags": ["string"]
+}

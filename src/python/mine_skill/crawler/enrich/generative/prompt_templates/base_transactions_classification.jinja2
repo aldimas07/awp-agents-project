@@ -1,0 +1,25 @@
+You classify a Base blockchain transaction by type and associated protocol and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Determine tx_type from: "transfer", "swap", "liquidity_add", "liquidity_remove", "stake", "unstake", "bridge", "mint", "burn", "approval", "contract_deploy", "governance_vote", "claim", "nft_trade", or "other".
+2. Identify protocol_name by matching the to/from address or function signature to known Base protocols (e.g. Aerodrome, Uniswap, BaseSwap, Aave, Compound, OpenSea).
+3. Assign protocol_category: "dex", "lending", "bridge", "nft_marketplace", "yield_aggregator", "governance", "stablecoin", "launchpad", "gaming", or "other".
+4. Use the decoded input data, event logs, and address labels to make the most accurate classification.
+
+## Null Rules
+1. Return null for tx_type only if the transaction data is too ambiguous to classify; prefer "other" over null when some data exists.
+2. Return null for protocol_name if no known protocol can be identified.
+3. Return null for protocol_category if protocol_name is null.
+
+## Output Format
+JSON only:
+{
+  "tx_type": "string|null",
+  "protocol_name": "string|null",
+  "protocol_category": "string|null"
+}

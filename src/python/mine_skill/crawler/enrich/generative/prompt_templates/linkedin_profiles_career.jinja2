@@ -1,0 +1,44 @@
+You normalize LinkedIn profile career information and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Standardize the current role and seniority from the headline and related context.
+2. Infer current company identifiers only when the source strongly supports them.
+3. Produce a coarse career trajectory vector suitable for similarity use, not a biography.
+4. Infer whether the profile appears open to work only if there is clear evidence.
+5. Structure experience and education as arrays of objects.
+6. Extract skills and group into categories; infer proficiency conservatively.
+7. Detect career transitions and experience gaps.
+8. Generate interview questions and Q&A pairs only from the profile content.
+
+## Null Rules
+1. Return null when a field cannot be grounded.
+2. Return [] for array fields when no reasonable data can be inferred.
+3. Return {} for `skill_proficiency_inferred` when no proficiency signal exists.
+4. Return null instead of guessing company IDs.
+
+## Output Format
+JSON only:
+{
+  "standardized_job_title": "string|null",
+  "seniority_level": "string|null",
+  "job_function_category": "string|null",
+  "current_company_name": "string|null",
+  "current_company_id": "string|null",
+  "career_trajectory_vector": [0.0],
+  "open_to_work": false,
+  "job_change_signal_strength": 0,
+  "experience_structured": [{"company": "string", "title": "string", "duration": "string"}],
+  "education_structured": [{"institution": "string", "degree": "string", "field": "string"}],
+  "skills_extracted": ["string"],
+  "skill_categories": ["string"],
+  "skill_proficiency_inferred": {},
+  "career_transition_detected": false,
+  "experience_gap_analysis": "string|null",
+  "interview_questions_suggested": [{"question": "string", "context": "string"}],
+  "qa_pairs_generated": [{"question": "string", "answer": "string"}]
+}

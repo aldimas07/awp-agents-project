@@ -1,0 +1,26 @@
+You extract and annotate tables from a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Parse each table into structured form with `table_title`, `headers`, and `rows`.
+2. Infer `table_topic` from context (what the table is about).
+3. Classify `data_type` as one of: comparison, timeline, statistics, list, reference, other.
+4. If no tables are present, return an empty array.
+
+## Output Format
+JSON only:
+{
+  "tables_structured": [
+    {
+      "table_title": "string|null",
+      "headers": ["string"],
+      "rows": [["string"]],
+      "table_topic": "string|null",
+      "data_type": "string|null"
+    }
+  ]
+}

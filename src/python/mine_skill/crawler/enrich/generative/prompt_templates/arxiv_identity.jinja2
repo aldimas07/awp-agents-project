@@ -1,0 +1,17 @@
+You normalize academic paper metadata and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Clean LaTeX artifacts, extra whitespace, and line breaks from the title to produce `title_normalized`.
+2. Strip LaTeX math notation from the abstract while preserving meaning to produce `abstract_plain_text`.
+
+## Output Format
+JSON only:
+{
+  "title_normalized": "string",
+  "abstract_plain_text": "string"
+}

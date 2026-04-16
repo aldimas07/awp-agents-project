@@ -1,0 +1,18 @@
+You are a job title standardization expert using the O*NET-SOC taxonomy.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+**{{ key }}**: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Map the job title/headline to the closest O*NET-SOC standardized job title.
+2. Determine the seniority level: "intern", "entry", "mid", "senior", "lead", "director", "vp", "c_level".
+3. Categorize the broad job function: "engineering", "product", "design", "marketing", "sales", "operations", "finance", "hr", "legal", "research", "executive", "other".
+
+## Output Format (JSON only, no commentary)
+{
+  "standardized_job_title": "...",
+  "seniority_level": "...",
+  "job_function_category": "..."
+}

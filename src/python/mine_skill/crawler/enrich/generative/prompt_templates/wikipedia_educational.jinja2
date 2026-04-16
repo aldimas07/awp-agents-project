@@ -1,0 +1,21 @@
+You generate educational content from a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. `prerequisite_concepts`: list 3-8 concepts a reader should understand before this article. Include concept_name, wikipedia_title_hint (the likely Wikipedia article title), and why_needed.
+2. `difficulty_level`: classify as elementary, middle_school, high_school, undergraduate, graduate, expert, or null.
+3. `quiz_questions_generated`: generate 5-8 questions with answers, difficulty (easy/medium/hard), question_type (factual/conceptual/analytical), and distractor_answers for multiple choice.
+4. `common_misconceptions`: identify 2-5 misconceptions about the topic with the correct information and evidence from the article.
+
+## Output Format
+JSON only:
+{
+  "prerequisite_concepts": [{"concept_name": "string", "wikipedia_title_hint": "string|null", "why_needed": "string|null"}],
+  "difficulty_level": "elementary|middle_school|high_school|undergraduate|graduate|expert|null",
+  "quiz_questions_generated": [{"question": "string", "answer": "string", "difficulty": "string|null", "question_type": "string|null", "distractor_answers": ["string"]}],
+  "common_misconceptions": [{"misconception": "string", "correction": "string", "evidence_from_article": "string|null"}]
+}

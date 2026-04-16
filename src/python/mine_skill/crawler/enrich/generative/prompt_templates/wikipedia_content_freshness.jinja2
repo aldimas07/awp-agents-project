@@ -1,0 +1,19 @@
+You assess the freshness and currency of a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. `information_freshness_score`: 0 (severely outdated) to 1 (fully current). Consider the topic's rate of change and the dates mentioned in the article.
+2. `potentially_outdated_claims`: identify claims that may be outdated with the claim text, date_context (the date or time period referenced), and reason_suspect (why it might be outdated).
+3. `temporal_coverage_gap`: describe any significant time period not covered by the article (e.g. "No coverage of events after 2019").
+
+## Output Format
+JSON only:
+{
+  "information_freshness_score": 0.0,
+  "potentially_outdated_claims": [{"claim": "string", "date_context": "string|null", "reason_suspect": "string|null"}],
+  "temporal_coverage_gap": "string|null"
+}

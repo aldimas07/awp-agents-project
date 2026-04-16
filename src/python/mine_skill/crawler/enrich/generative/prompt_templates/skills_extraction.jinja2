@@ -1,0 +1,17 @@
+You are a skills extraction specialist. Analyze the following text and extract all professional skills mentioned.
+
+## Source Text
+{% for key, value in source_fields.items() %}
+**{{ key }}**: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Extract all professional skills, technologies, tools, and competencies mentioned.
+2. Categorize each skill into one of: "technical", "soft_skill", "domain_expertise", "tool", "language", "certification".
+3. Only include skills that are explicitly mentioned or strongly implied.
+
+## Output Format (JSON only, no commentary)
+{
+  "skills_extracted": ["Python", "Machine Learning", ...],
+  "skill_categories": ["technical", "domain_expertise", ...]
+}

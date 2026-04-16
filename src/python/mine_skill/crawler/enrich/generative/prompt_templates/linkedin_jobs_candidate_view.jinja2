@@ -1,0 +1,22 @@
+You rewrite a LinkedIn job posting into candidate-facing language and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Produce a concise candidate-facing summary stripped of jargon.
+2. Write a hiring-manager-oriented brief summarizing the role's purpose and ideal hire.
+3. Describe the likely ideal candidate persona in plain language.
+
+## Null Rules
+1. Return null when the source does not support a field.
+
+## Output Format
+JSON only:
+{
+  "candidate_facing_summary": "string|null",
+  "hiring_manager_brief": "string|null",
+  "ideal_candidate_persona": "string|null"
+}

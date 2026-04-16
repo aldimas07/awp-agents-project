@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Amazon Seller",
+  "type": "object",
+  "properties": {
+    "seller_id": { "type": "string" },
+    "name": { "type": "string" },
+    "title": { "type": "string" },
+    "stars": { "type": "number" },
+    "feedbacks": { "type": "string" },
+    "seller_email": { "type": "string" },
+    "seller_phone": { "type": "string" },
+    "canonical_url": { "type": "string", "format": "uri" },
+    "dedup_key": { "type": "string" }
+  },
+  "required": ["seller_id", "canonical_url"]
+}

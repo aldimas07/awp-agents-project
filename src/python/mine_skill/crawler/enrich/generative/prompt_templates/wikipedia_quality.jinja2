@@ -1,0 +1,29 @@
+You assess the quality and reliability of a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. `article_quality_class`: classify as featured_article, good_article, b_class, c_class, start, stub, or null.
+2. `neutrality_score`: 0 (heavily biased) to 1 (perfectly neutral).
+3. `citation_density`: references per 1000 words. Calculate as: (references_count / word_count) * 1000 if both fields are available, otherwise estimate from text.
+4. `last_major_edit`: pass through from source if available.
+5. `edit_controversy_score`: 0 (no controversy) to 1 (highly contested).
+6. `internal_contradictions`: list contradictions found between different parts of the article.
+7. `article_completeness_assessment`: identify expected sections that are missing and give an overall completeness score.
+8. `source_diversity_assessment`: analyze the distribution of source types and geographic diversity.
+
+## Output Format
+JSON only:
+{
+  "article_quality_class": "string|null",
+  "neutrality_score": 0.0,
+  "citation_density": 0.0,
+  "last_major_edit": "string|null",
+  "edit_controversy_score": 0.0,
+  "internal_contradictions": [{"contradiction": "string", "location_a": "string|null", "location_b": "string|null", "severity": "string|null"}],
+  "article_completeness_assessment": {"expected_sections_missing": ["string"], "overall_completeness_score": 0.0},
+  "source_diversity_assessment": {"source_type_distribution": {"academic": 0, "news": 0, "government": 0, "corporate": 0, "self_published": 0}, "geographic_diversity_score": 0.0, "over_reliance_on_single_source": false}
+}

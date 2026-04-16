@@ -1,0 +1,33 @@
+You summarize LinkedIn profile narrative fields and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Distill the profile about section into a factual summary.
+2. Extract key topics and sentiment from the source text.
+3. Classify the career narrative type using concise labels.
+4. Write a one-line summary, recruiter brief, and investor brief.
+5. Produce a full profile narrative and writing style profile.
+6. Extract culture fit indicators only from explicit evidence.
+
+## Null Rules
+1. Return null for missing single-value fields.
+2. Return [] for topic lists when no reliable topics are present.
+
+## Output Format
+JSON only:
+{
+  "about_summary": "string|null",
+  "about_topics": ["string"],
+  "about_sentiment": "string|null",
+  "career_narrative_type": "string|null",
+  "one_line_summary": "string|null",
+  "recruiter_brief": "string|null",
+  "investor_brief": "string|null",
+  "full_profile_narrative": "string|null",
+  "writing_style_profile": "string|null",
+  "culture_fit_indicators": "string|null"
+}

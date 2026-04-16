@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "arXiv Paper",
+  "type": "object",
+  "properties": {
+    "arxiv_id": { "type": "string", "description": "arXiv identifier (e.g., 2301.12345)" },
+    "title": { "type": "string" },
+    "authors": { "type": "array", "items": { "type": "object" } },
+    "abstract": { "type": "string" },
+    "categories": { "type": "array", "items": { "type": "string" } },
+    "primary_category": { "type": "string" },
+    "published_date": { "type": "string" },
+    "updated_date": { "type": "string" },
+    "doi": { "type": "string" },
+    "journal_ref": { "type": "string" },
+    "canonical_url": { "type": "string", "format": "uri" },
+    "pdf_url": { "type": "string", "format": "uri" },
+    "page_count": { "type": "integer" },
+    "references_count": { "type": "integer" },
+    "figures_count": { "type": "integer" },
+    "github_urls": { "type": "array", "items": { "type": "string" } },
+    "dataset_urls": { "type": "array", "items": { "type": "string" } },
+    "sections": { "type": "array", "items": { "type": "object" } },
+    "domain": { "type": "string" },
+    "dedup_key": { "type": "string" }
+  },
+  "required": ["arxiv_id", "title", "canonical_url"]
+}

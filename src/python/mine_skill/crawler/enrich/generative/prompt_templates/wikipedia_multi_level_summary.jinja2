@@ -1,0 +1,23 @@
+You generate multiple summary styles for a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. `one_line_summary`: single sentence capturing the essence of the article.
+2. `eli5_summary`: explain like I'm 5 — simple language, 2-3 sentences.
+3. `standard_summary`: 3-5 sentence balanced summary suitable for a general audience.
+4. `academic_summary`: formal summary suitable for academic citation, 3-5 sentences.
+5. `key_takeaways`: 3-7 bullet points of the most important facts.
+
+## Output Format
+JSON only:
+{
+  "one_line_summary": "string|null",
+  "eli5_summary": "string|null",
+  "standard_summary": "string|null",
+  "academic_summary": "string|null",
+  "key_takeaways": ["string"]
+}

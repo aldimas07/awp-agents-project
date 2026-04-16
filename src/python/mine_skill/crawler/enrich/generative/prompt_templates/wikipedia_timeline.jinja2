@@ -1,0 +1,24 @@
+You extract a chronological timeline from a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Extract chronological events mentioned in the article.
+2. For each event provide: date (as precise as available), event_description, event_type (founding/discovery/publication/battle/election/award/death/other), and participants (people/organizations involved).
+3. Sort events chronologically. Return [] if no datable events are found.
+
+## Output Format
+JSON only:
+{
+  "temporal_events": [
+    {
+      "date": "string",
+      "event_description": "string",
+      "event_type": "string|null",
+      "participants": ["string"]
+    }
+  ]
+}

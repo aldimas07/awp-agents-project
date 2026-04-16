@@ -1,0 +1,23 @@
+You break down a paper's structure into sections and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Identify each major section by its heading.
+2. Write a 1-3 sentence `content_summary` capturing what the section covers.
+3. Classify `section_type` as one of: introduction, related_work, methodology, experiments, results, discussion, conclusion, appendix, or other.
+
+## Output Format
+JSON only:
+{
+  "sections_structured": [
+    {
+      "heading": "string",
+      "content_summary": "string|null",
+      "section_type": "string|null"
+    }
+  ]
+}

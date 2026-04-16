@@ -1,0 +1,22 @@
+You analyze the reference list of a research paper and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Parse references into structured entries with title, authors, year, and venue.
+2. For each reference, infer `citation_context` as one of: background, method, comparison, extension, or null.
+3. Infer `citation_sentiment` as: positive, negative, neutral, or null.
+4. Count `total_citation_count` (number of references in the paper).
+5. Estimate `influential_citation_count` (references that are directly used, not just mentioned in passing).
+6. If the reference list is unavailable, return [] and null counts.
+
+## Output Format
+JSON only:
+{
+  "references_structured": [{"title": "string|null", "authors": "string|null", "year": "string|null", "venue": "string|null", "citation_context": "background|method|comparison|extension|null", "citation_sentiment": "positive|negative|neutral|null"}],
+  "total_citation_count": 0,
+  "influential_citation_count": 0
+}

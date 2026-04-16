@@ -1,0 +1,31 @@
+You analyze figures in a research paper and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. For each figure, identify the `figure_id` (e.g. "Figure 1").
+2. Classify `figure_type` as one of: architecture_diagram, chart, table, plot, photo, schematic, flowchart, other.
+3. Keep `caption_original` as-is from the paper.
+4. Write `caption_enhanced` with more detail about what the figure shows.
+5. Summarize `key_findings_from_figure` in one sentence.
+6. Extract `data_points_extracted` if the figure contains quantitative data.
+7. List `components_identified` (e.g. model components, data flow steps).
+
+## Output Format
+JSON only:
+{
+  "figures_analyzed": [
+    {
+      "figure_id": "string",
+      "figure_type": "string|null",
+      "caption_original": "string|null",
+      "caption_enhanced": "string|null",
+      "key_findings_from_figure": "string|null",
+      "data_points_extracted": "string|null",
+      "components_identified": ["string"]
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+You analyze Amazon seller portfolio signals and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Summarize the seller's product mix from the provided listings only.
+2. Use `brands_featured_on_storefront` for explicit or strongly implied brands carried by the seller.
+3. Keep `avg_product_rating` on a 0 to 5 scale.
+4. Use null when the source listings are too thin to support a scalar answer.
+
+## Null Rules
+1. Return [] for collection fields when nothing is grounded.
+2. Return null for unsupported scalar inferences.
+
+## Output Format
+JSON only:
+{
+  "product_count": "integer|null",
+  "category_focus": [],
+  "brand_portfolio": [],
+  "brands_featured_on_storefront": [],
+  "price_range": "string|null",
+  "avg_product_rating": "number|null"
+}

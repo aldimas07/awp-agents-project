@@ -1,0 +1,29 @@
+You extract structured Amazon review intelligence and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Extract concrete problems into `issues_reported`.
+2. Infer `customer_segment_inferred` and `purchase_context` conservatively.
+3. If seller response appears in the source, assess `seller_response_quality` and `issue_resolution_status`.
+4. Use `temporal_context_of_opinion` for first-impression, short-term, or long-term usage context.
+5. Use `problem_root_cause_inferred` only when the review supports a plausible root cause.
+
+## Null Rules
+1. Return null for unsupported scalar inferences.
+2. Return [] or {} for empty structured fields.
+
+## Output Format
+JSON only:
+{
+  "issues_reported": [],
+  "customer_segment_inferred": "string|null",
+  "purchase_context": "string|null",
+  "seller_response_quality": "string|null",
+  "issue_resolution_status": "string|null",
+  "temporal_context_of_opinion": {},
+  "problem_root_cause_inferred": {}
+}

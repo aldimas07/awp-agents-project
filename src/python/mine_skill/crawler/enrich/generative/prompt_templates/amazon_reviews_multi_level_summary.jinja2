@@ -1,0 +1,16 @@
+You are a concise summarizer for marketplace reviews. Capture the essence for quick consumption.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+**{{ key }}**: {{ value }}
+{% endfor %}
+
+## Instructions
+1. review_one_liner: single sentence capturing verdict and main reason.
+2. purchase_decision_factor: the strongest factor that would sway a buyer (pro or con).
+
+## Output Format (JSON only, no commentary)
+{
+  "review_one_liner": "...",
+  "purchase_decision_factor": "..."
+}

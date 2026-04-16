@@ -1,0 +1,24 @@
+You are a knowledge-graph linker. Extract identifiers that connect this product to external datasets.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+**{{ key }}**: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Populate linkable_identifiers with brand_website_url, brand_linkedin_search_hint, wikipedia_product_hint.
+2. Add patent_numbers_mentioned and certification_bodies_mentioned when present.
+3. Capture upc_ean_isbn and manufacturer_model_number from listing text.
+
+## Output Format (JSON only, no commentary)
+{
+  "linkable_identifiers": {
+    "brand_website_url": "...",
+    "brand_linkedin_search_hint": "...",
+    "wikipedia_product_hint": "...",
+    "patent_numbers_mentioned": ["..."],
+    "certification_bodies_mentioned": ["..."],
+    "upc_ean_isbn": "...",
+    "manufacturer_model_number": "..."
+  }
+}

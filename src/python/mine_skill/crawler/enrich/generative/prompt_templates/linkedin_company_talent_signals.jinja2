@@ -1,0 +1,24 @@
+You infer workforce and hiring signals from a LinkedIn company page and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Estimate hiring and retention signals conservatively.
+2. Use short categorical labels where possible.
+3. `posts_recent` should summarize recent post activity as an array of objects with keys like "date", "topic", "engagement".
+
+## Null Rules
+1. Return null for unsupported values.
+2. Return [] for `posts_recent` when no post data is available.
+
+## Output Format
+JSON only:
+{
+  "employee_growth_trend": "string|null",
+  "attrition_signal": "string|null",
+  "hiring_velocity": "string|null",
+  "posts_recent": []
+}

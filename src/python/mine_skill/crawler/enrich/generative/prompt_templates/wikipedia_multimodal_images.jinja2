@@ -1,0 +1,30 @@
+You annotate images from a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. For each image, generate a descriptive `caption_generated`.
+2. List what the image `depicts` (entities, objects, scenes).
+3. Classify `image_type` as: photograph, diagram, map, chart, logo, painting, illustration, other.
+4. Provide `spatial_description` of the scene layout if applicable.
+5. Identify `historical_period_depicted` if the image shows a historical scene.
+6. Add `scientific_annotation` for scientific diagrams or figures.
+
+## Output Format
+JSON only:
+{
+  "images_annotated": [
+    {
+      "url": "string",
+      "caption_generated": "string|null",
+      "depicts": ["string"],
+      "image_type": "string|null",
+      "spatial_description": "string|null",
+      "historical_period_depicted": "string|null",
+      "scientific_annotation": "string|null"
+    }
+  ]
+}

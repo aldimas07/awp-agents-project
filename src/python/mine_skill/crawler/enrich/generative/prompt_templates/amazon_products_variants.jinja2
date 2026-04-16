@@ -1,0 +1,18 @@
+You are a catalog variant analyst. Structure variant options and highlight the strongest SKU.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+**{{ key }}**: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Encode variant_matrix_structured as an object mapping option dimensions to values/SKUs.
+2. Name best_seller_variant (size/color/SKU label) if inferable from reviews or badges.
+3. Give variant_price_range as min-max string or structured note.
+
+## Output Format (JSON only, no commentary)
+{
+  "variant_matrix_structured": {},
+  "best_seller_variant": "...",
+  "variant_price_range": "..."
+}

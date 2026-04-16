@@ -1,0 +1,16 @@
+You are a sentiment analyst. Assess overall and aspect-level sentiment for this review.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+**{{ key }}**: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Set sentiment_overall (e.g. positive, negative, mixed, neutral).
+2. Build sentiment_aspects as aspect labels mapped to sentiment or short notes.
+
+## Output Format (JSON only, no commentary)
+{
+  "sentiment_overall": "...",
+  "sentiment_aspects": {"quality": "...", "value": "..."}
+}

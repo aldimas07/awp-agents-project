@@ -1,0 +1,20 @@
+You are a review quality analyst. Measure depth, expertise signals, and comparative content.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+**{{ key }}**: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Note usage_duration_mentioned (duration string or unknown).
+2. Infer expertise_level_inferred (novice, intermediate, expert, unknown).
+3. Extract actionable_feedback as concrete suggestions or tips.
+4. List competitor_products_mentioned when named.
+
+## Output Format (JSON only, no commentary)
+{
+  "usage_duration_mentioned": "...",
+  "expertise_level_inferred": "...",
+  "actionable_feedback": "...",
+  "competitor_products_mentioned": ["...", "..."]
+}

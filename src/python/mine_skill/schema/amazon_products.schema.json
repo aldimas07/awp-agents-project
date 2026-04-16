@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Amazon Product",
+  "type": "object",
+  "properties": {
+    "asin": { "type": "string" },
+    "title": { "type": "string" },
+    "brand": { "type": "string" },
+    "price": { "type": "string" },
+    "final_price": { "type": "number" },
+    "initial_price": { "type": "number" },
+    "currency": { "type": "string" },
+    "discount": { "type": "string" },
+    "rating": { "type": "number" },
+    "reviews_count": { "type": "integer" },
+    "availability": { "type": "string" },
+    "stock_status": { "type": "string" },
+    "fulfillment_type": { "type": "string" },
+    "prime_eligible": { "type": "boolean" },
+    "shipping_speed_tier": { "type": "string" },
+    "seller_name": { "type": "string" },
+    "seller_id": { "type": "string" },
+    "categories": { "type": "array", "items": { "type": "string" } },
+    "images": { "type": "array", "items": { "type": "string" } },
+    "description": { "type": "string" },
+    "features": { "type": "array", "items": { "type": "string" } },
+    "canonical_url": { "type": "string", "format": "uri" },
+    "marketplace": { "type": "string" },
+    "estimated_monthly_sales": { "type": "integer" },
+    "dedup_key": { "type": "string" }
+  },
+  "required": ["asin", "title", "canonical_url"]
+}

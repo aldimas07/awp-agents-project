@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LinkedIn Company",
+  "type": "object",
+  "properties": {
+    "company_slug": { "type": "string" },
+    "title": { "type": "string" },
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "website_url": { "type": "string", "format": "uri" },
+    "industry": { "type": "string" },
+    "company_size": { "type": "string" },
+    "headquarters": { "type": "string" },
+    "founded_year": { "type": "integer" },
+    "follower_count": { "type": "integer" },
+    "staff_count": { "type": "integer" },
+    "logo_url": { "type": "string", "format": "uri" },
+    "specialties": { "type": "array", "items": { "type": "string" } },
+    "canonical_url": { "type": "string", "format": "uri" },
+    "dedup_key": { "type": "string" }
+  },
+  "required": ["company_slug", "canonical_url"]
+}

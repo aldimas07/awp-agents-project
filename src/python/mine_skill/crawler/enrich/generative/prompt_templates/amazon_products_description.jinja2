@@ -1,0 +1,20 @@
+You are a product specification analyst. Extract structured features, specs, and audience signals.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+**{{ key }}**: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Build features_structured as objects with feature_name, feature_value, feature_unit.
+2. Capture key_specs_table as concise text or structured summary of the spec block.
+3. List use_cases_extracted as short bullet-style strings.
+4. Infer target_audience_inferred (who this product is for).
+
+## Output Format (JSON only, no commentary)
+{
+  "features_structured": [{"feature_name": "...", "feature_value": "...", "feature_unit": "..."}],
+  "key_specs_table": "...",
+  "use_cases_extracted": ["...", "..."],
+  "target_audience_inferred": "..."
+}

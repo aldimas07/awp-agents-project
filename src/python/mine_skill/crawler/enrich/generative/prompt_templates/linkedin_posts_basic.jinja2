@@ -1,0 +1,24 @@
+You analyze a LinkedIn post and return basic structured content fields.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Tag the main topics and classify the post type.
+2. Extract the main explicit claims from the post text.
+3. For alias groups: `entities_mentioned` may also be requested — extract entities with name, type, and sentiment.
+
+## Null Rules
+1. Return [] for list fields with no grounded items.
+2. Return null for unsupported scalars.
+
+## Output Format
+JSON only:
+{
+  "post_topic_tags": ["string"],
+  "post_type": "string|null",
+  "key_claims_extracted": ["string"],
+  "entities_mentioned": [{"name": "string", "type": "string", "sentiment": "string"}]
+}

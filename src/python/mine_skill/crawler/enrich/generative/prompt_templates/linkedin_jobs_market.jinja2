@@ -1,0 +1,21 @@
+You infer market signals for a LinkedIn job posting and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Estimate competition and urgency at a coarse level.
+2. Use numeric output only for `days_to_fill_estimated`.
+
+## Null Rules
+1. Return null for unsupported estimates.
+
+## Output Format
+JSON only:
+{
+  "competition_level": "string|null",
+  "days_to_fill_estimated": 0,
+  "urgency_signal": "string|null"
+}

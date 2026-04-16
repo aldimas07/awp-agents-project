@@ -1,0 +1,18 @@
+You produce a concise factual summary from structured data fields.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Read ALL source fields carefully.
+2. Write a single factual summary (3-5 sentences) covering the most important information.
+3. Use ONLY facts stated in the source fields. Do NOT infer or add information.
+4. If insufficient data exists, write a shorter summary using only what is available.
+
+## Output Format
+JSON only:
+{
+  "summary": "string"
+}

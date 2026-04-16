@@ -1,0 +1,21 @@
+You analyze Wikipedia article metadata and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. `title_disambiguated`: the full title including parenthetical qualifier if present (e.g. "Mercury (planet)"), or null if no disambiguation.
+2. `canonical_entity_name`: the clean entity name without disambiguation (e.g. "Mercury").
+3. `entity_type`: classify as one of person, place, organization, event, concept, thing, or null.
+4. `wikidata_id`: extract the Wikidata QID if available in source fields, otherwise null.
+
+## Output Format
+JSON only:
+{
+  "title_disambiguated": "string|null",
+  "canonical_entity_name": "string|null",
+  "entity_type": "person|place|organization|event|concept|thing|null",
+  "wikidata_id": "string|null"
+}

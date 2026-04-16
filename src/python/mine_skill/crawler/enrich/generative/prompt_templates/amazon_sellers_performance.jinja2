@@ -1,0 +1,18 @@
+You are a seller performance analyst. Infer health, responsiveness, and dispute risk from public signals.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+**{{ key }}**: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Score seller_health_score from 0 to 1 using ratings, feedback, and policy badges.
+2. Assign response_time_tier (e.g. fast, moderate, slow, unknown).
+3. Estimate dispute_rate_estimated as low/medium/high or a 0-1 proxy when inferable.
+
+## Output Format (JSON only, no commentary)
+{
+  "seller_health_score": 0.0,
+  "response_time_tier": "...",
+  "dispute_rate_estimated": "..."
+}

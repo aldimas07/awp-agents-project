@@ -1,0 +1,30 @@
+You extract cross-platform identifiers from a Wikipedia article and return structured JSON.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+## Instructions
+1. `arxiv_paper_hints`: list arXiv paper titles or IDs related to the article's topic.
+2. `linkedin_person_hints`: for notable people mentioned, provide name, role, and organization for LinkedIn search.
+3. `amazon_product_hints`: list product names or ASINs if the article references commercial products.
+4. `external_database_ids`: extract identifiers like imdb_id, isbn, doi, patent_numbers, official_website from the article content or infobox.
+5. Return [] or null for empty/unavailable fields.
+
+## Output Format
+JSON only:
+{
+  "linkable_identifiers": {
+    "arxiv_paper_hints": ["string"],
+    "linkedin_person_hints": [{"name": "string", "role": "string|null", "organization": "string|null"}],
+    "amazon_product_hints": ["string"],
+    "external_database_ids": {
+      "imdb_id": "string|null",
+      "isbn": "string|null",
+      "doi": ["string"],
+      "patent_numbers": ["string"],
+      "official_website": "string|null"
+    }
+  }
+}

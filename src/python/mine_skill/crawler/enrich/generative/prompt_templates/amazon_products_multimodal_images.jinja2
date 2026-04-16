@@ -1,0 +1,20 @@
+You are a vision-language analyst. Describe main and secondary images and align text with visuals.
+
+## Source Fields
+{% for key, value in source_fields.items() %}
+**{{ key }}**: {{ value }}
+{% endfor %}
+
+## Instructions
+1. Fill main_image_analysis: background_type, product_clearly_visible, image_resolution_adequate, product_angle.
+2. Build all_images_analysis as entries with image_type, text_extracted, scene_description.
+3. Score image_text_consistency_score from 0 to 1 versus title and bullets.
+4. Complete listing_visual_completeness: has_hero, has_lifestyle, has_infographic, has_size_reference, has_packaging, missing_recommended.
+
+## Output Format (JSON only, no commentary)
+{
+  "main_image_analysis": {"background_type": "...", "product_clearly_visible": true, "image_resolution_adequate": true, "product_angle": "..."},
+  "all_images_analysis": [{"image_type": "...", "text_extracted": "...", "scene_description": "..."}],
+  "image_text_consistency_score": 0.0,
+  "listing_visual_completeness": {"has_hero": true, "has_lifestyle": true, "has_infographic": true, "has_size_reference": true, "has_packaging": true, "missing_recommended": ["..."]}
+}
