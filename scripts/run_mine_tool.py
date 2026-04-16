@@ -1054,6 +1054,8 @@ def run_agent_start(dataset_arg: str = "") -> str:
                 },
             },
         }, ensure_ascii=False, indent=2)
+    if not dataset_arg:
+        dataset_arg = os.environ.get("MINER_DATASETS", "")
     selected_dataset_ids = [item.strip() for item in dataset_arg.split(",") if item.strip()] if dataset_arg else None
 
     import httpx
