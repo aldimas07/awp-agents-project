@@ -181,8 +181,9 @@ function status_all() {
             local mine_status="DISABLED" # Default if not enabled
 
             if [ "$enable_miner" = "true" ]; then
-                # Check for run-worker process with the specific WORKER_STATE_ROOT
-                if ps aux | grep "run-worker" | grep "$agent_name/state" | grep -v grep > /dev/null 2>&1; then
+                # Check for run-worker process with the specific MINER_ID tag
+                local search_tag=${MINER_ID:-$agent_name}
+                if ps aux | grep "run-worker" | grep "$search_tag" | grep -v grep > /dev/null 2>&1; then
                     mine_status="ON"
                 else
                     mine_status="OFF"
