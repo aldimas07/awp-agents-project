@@ -731,7 +731,8 @@ fn build_prompt(
     prompt.push_str("You are a **12-year veteran crypto technical analyst** who only trades with high-probability confluences. Your goal is to maximize chip balance in this AWP prediction game.\n\n");
 
     prompt.push_str("# CRITICAL RULES & CONSTRAINTS\n");
-    prompt.push_str("- **NEUTRAL Action**: If less than 2 technical indicators align, or if market is ranging with ADX < 20, you MUST output \"action\": \"skip\" and explain it as a NEUTRAL stance.\n");
+    prompt.push_str("- **Regime Detection**: If ADX < 20, you MUST prioritize NEUTRAL/SKIP unless Bollinger Bands show a significant 'Squeeze' breakout.\n");
+    prompt.push_str("- **Overconfidence Filter**: If your confidence score > 80 but fewer than 2 indicators align, you MUST lower your confidence to 65 and re-evaluate sizing.\n");
     prompt.push_str("- **Self-Critique**: If RSI > 75 and you predict UP, you MUST justify why this isn't an overbought trap. Same for RSI < 25 and predict DOWN.\n");
     prompt.push_str("- **Tone**: Professional, technical, clinical. No excitement. Cite specific indicator values.\n\n");
 
@@ -1165,17 +1166,33 @@ fn build_prompt(
             let macd = calculate_macd(&closes).map(|(m, s, h)| format!("MACD: {:.4}, Signal: {:.4}, Hist: {:.4}", m, s, h)).unwrap_or_else(|| "N/A".into());
             let atr = calculate_atr(&highs, &lows, &closes, 14).map(|v| format!("{:.4}", v)).unwrap_or_else(|| "N/A".into());
             let adx = calculate_adx(&highs, &lows, &closes, 14).map(|v| format!("{:.2}", v)).unwrap_or_else(|| "N/A".into());
+            let bb = calculate_bollinger_bands(&closes, 20, 2.0);
 
             prompt.push_str(&format!("- **RSI (14):** {}\n", rsi));
             prompt.push_str(&format!("- **EMA (20/50):** {} / {}\n", ema20, ema50));
             prompt.push_str(&format!("- **MACD (12/26/9):** {}\n", macd));
             prompt.push_str(&format!("- **ATR (14):** {}\n", atr));
-            prompt.push_str(&format!("- **ADX (14):** {}\n\n", adx));
+            prompt.push_str(&format!("- **ADX (14):** {}\n", adx));
+            if let Some((_, up, lo, bw)) = bb {
+                let squeeze = if bw < 0.05 { "LOW (Squeeze)" } else if bw < 0.1 { "MEDIUM" } else { "HIGH" };
+                prompt.push_str(&format!("- **Bollinger Bands (20,2):** Price {:.2} | Upper {:.2} | Lower {:.2} | Vol={}\n\n", current_price, up, lo, squeeze));
+            }
 
-            prompt.push_str(&format!("## Klines ({} candles)\n\n", candles.len()));
+            // Synthesized Market Summary
+            prompt.push_str("## Market Structure (Last 40 Candles)\n");
+            let support = lows.iter().rev().take(40).copied().fold(f64::INFINITY, f64::min);
+            let resistance = highs.iter().rev().take(40).copied().fold(f64::NEG_INFINITY, f64::max);
+            let first_price = closes.iter().rev().take(40).last().copied().unwrap_or(current_price);
+            let structure = if current_price > first_price { "Trend: BULLISH Structure (HH/HL)" } else { "Trend: BEARISH Structure (LH/LL)" };
+            
+            prompt.push_str(&format!("- **{}**\n", structure));
+            prompt.push_str(&format!("- **Key Levels:** Support {:.2} | Resistance {:.2}\n", support, resistance));
+            prompt.push_str(&format!("- **Recent Volatility:** ATR14 = {:.4}\n\n", atr));
+
+            prompt.push_str(&format!("## Klines ({} candles - showing latest 10)\n\n", candles.len()));
             prompt.push_str("time | open | high | low | close | volume\n");
             prompt.push_str("--- | --- | --- | --- | --- | ---\n");
-            let start = if candles.len() > 15 { candles.len() - 15 } else { 0 };
+            let start = if candles.len() > 10 { candles.len() - 10 } else { 0 };
             for candle in &candles[start..] {
                 if let Some(obj) = candle.as_object() {
                     prompt.push_str(&format!(
@@ -1780,4 +1797,18 @@ fn calculate_adx(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> 
     }
     
     calculate_sma(&dx_series, period)
+}
+
+fn calculate_bollinger_bands(prices: &[f64], period: usize, std_dev_mult: f64) -> Option<(f64, f64, f64, f64)> {
+    if prices.len() < period { return None; }
+    
+    let sma = calculate_sma(prices, period)?;
+    let variance: f64 = prices.iter().rev().take(period).map(|&p| (p - sma).powi(2)).sum::<f64>() / period as f64;
+    let std_dev = variance.sqrt();
+    
+    let upper = sma + (std_dev_mult * std_dev);
+    let lower = sma - (std_dev_mult * std_dev);
+    let bandwidth = if sma != 0.0 { (upper - lower) / sma } else { 0.0 };
+    
+    Some((sma, upper, lower, bandwidth))
 }

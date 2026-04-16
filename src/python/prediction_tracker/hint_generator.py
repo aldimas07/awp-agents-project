@@ -56,20 +56,37 @@ def generate_hint(agent_id):
             hint_lines.append("> [!WARNING]\n")
             hint_lines.append("> Your reasoning is being REJECTED frequently. You MUST change your analytical style immediately to avoid being flagged as a bot.\n\n")
 
-        # 1. Performance-based Kelly Criterion (v2.0)
+        # 1. Performance-based Kelly Criterion (v2.0 - Dynamic R/R)
+        filled_trades = df[df['submission_status'].isin(['filled', 'partial'])]
+        
+        # Calculate Realized R/R from at least 20 historical trades if possible
+        if len(filled_trades) >= 10:
+            # Assuming 'payout_chips' and 'chips_spent' are columns in expectations
+            # In our CSV, we have 'payout' (total return) and 'tickets' (spent)
+            # R = (payout - tickets) / tickets
+            wins = filled_trades[filled_trades['won'] == True]
+            losses = filled_trades[filled_trades['won'] == False]
+            
+            avg_win_profit = (wins['payout_chips'] - wins['tickets']).mean() if not wins.empty else 0
+            avg_loss_amt = losses['tickets'].mean() if not losses.empty else 100
+            
+            realized_rr = avg_win_profit / avg_loss_amt if avg_loss_amt > 0 else 1.4
+            r_ratio = max(0.8, min(realized_rr, 2.5)) # Bound it for stability
+        else:
+            r_ratio = 1.4 # Default starting point
+            
         filled_count = last_results.count("✅") + last_results.count("🌗")
         num_trades = len(last_results)
         win_rate = filled_count / num_trades if num_trades > 0 else 0
         
-        # Simple Kelly: K% = W - (1-W)/R. Assuming Reward:Risk ratio of 1.4 for 15m/30m windows.
-        r_ratio = 1.4
+        # Kelly: K% = W - (1-W)/R
         kelly_pct = win_rate - ((1 - win_rate) / r_ratio)
         kelly_pct = max(0, min(kelly_pct, 0.4)) # Cap at 40%
         
-        # Fractional Kelly (0.5x) for safety
+        # Fractional Kelly (0.5x)
         safe_kelly = kelly_pct * 0.5
         
-        hint_lines.append(f"- Strategy Performance: **{win_rate*100:.1f}% Win Rate**\n")
+        hint_lines.append(f"- Strategy Performance: **{win_rate*100:.1f}% Win Rate** | Realized R/R: **{r_ratio:.2f}**\n")
         
         if win_rate > 0.6:
             hint_lines.append(f"- Kelly Recommended Size: **{safe_kelly*100:.1f}% of balance** (High Confidence)\n")
