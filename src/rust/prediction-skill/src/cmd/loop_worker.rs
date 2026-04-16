@@ -24,6 +24,7 @@
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -725,10 +726,15 @@ fn build_prompt(
     let agent_style = get_agent_style(agent_id);
     let mut prompt = String::with_capacity(8000);
     
-    // 1. Analytical Salt / Mission Directive (MOVE TO TOP for Gemini Flash focus)
+    // 1. MISSION DIRECTIVE + STRATEGY HINT (INJECTED FROM PYTHON)
     let custom_salt = std::env::var("CUSTOM_SALT").unwrap_or_default();
     prompt.push_str("# MISSION DIRECTIVE\n");
     prompt.push_str("You are a **12-year veteran crypto technical analyst** who only trades with high-probability confluences. Your goal is to maximize chip balance in this AWP prediction game.\n\n");
+
+    // === STRATEGY HINT INJECTION (Kelly + Streak + Drawdown) ===
+    let strategy_hint = load_strategy_hint(agent_id);
+    prompt.push_str(&strategy_hint);
+    prompt.push_str("\n\n");
 
     prompt.push_str("# CRITICAL RULES & CONSTRAINTS\n");
     prompt.push_str("- **Regime Detection**: If ADX < 20, you MUST prioritize NEUTRAL/SKIP unless Bollinger Bands show a significant 'Squeeze' breakout.\n");
@@ -806,64 +812,20 @@ fn build_prompt(
     // attention from the LLM after processing all the market data.
     // Violated constraints = rejected submissions.
 
-    // Persona-specific ticket sizing guidance
-    match persona {
-        "degen" => {
-            prompt.push_str("**Your style (degen):** Go big or go home. Minimum 30% of balance per trade, up to 50% when you see any reasonable signal. Never skip — always find a trade. You're here to make moves, not to watch from the sidelines.\n\n");
-        }
-        "sniper" => {
-            prompt.push_str("**Your style (sniper):** Quality over quantity. When you DO submit, commit 25-40% of balance. If the signal isn't crystal clear, skip and wait for a better setup. But when you pull the trigger, make it count.\n\n");
-        }
-        "conservative" => {
-            prompt.push_str("**Your style (conservative):** Capital preservation first. Keep positions at 5-15% of balance. Only trade on strong, clear signals. It's fine to skip rounds when uncertain.\n\n");
-        }
-        "contrarian" => {
-            prompt.push_str("**Your style (contrarian):** Fade the crowd. When implied_up_prob is extreme (>0.80 or <0.20), bet the opposite direction with 20-35% of balance. The crowd is often wrong at extremes.\n\n");
-        }
-        _ => {}
-    }
+    prompt.push_str(&format!(
+        "Trade Context: Analyzing for profile {} with strategy-led constraints.\n\n",
+        if persona != "none" { persona } else { "independent" }
+    ));
     prompt.push_str("## Why This Matters\n\n");
     prompt.push_str("Your predictions are recorded permanently on-chain. Every agent can see your track record — your accuracy rate, your win/loss history, your reasoning quality. Top-performing agents earn significantly more $PRED rewards and build reputation that compounds over time. Poor performers fall behind and become irrelevant.\n\n");
     prompt.push_str("You are competing against other AI agents who are analyzing the same data. The ones who win consistently are not the ones who predict the most — they are the ones who think the hardest about WHEN to commit big and when to stay small. A single well-reasoned contrarian call that hits is worth more than dozens of lazy consensus-following submissions.\n\n");
     prompt.push_str("Treat every prediction as if your track record depends on it — because it does.\n\n");
 
-    // Game rules — the agent must understand the full picture
-    prompt.push_str("## Game Rules\n\n");
-    prompt.push_str("You are playing a prediction market game against other AI agents. This is a **repeated game** — you will play hundreds of rounds over days and weeks. Your goal is to **maximize your chip balance over time**, not to win any single prediction.\n\n");
-
-    prompt.push_str("**The long game:**\n");
-    prompt.push_str("- A single prediction does not matter. What matters is your cumulative P&L across all predictions.\n");
-    prompt.push_str("- Winning 6 out of 10 predictions at fair odds (0.50) makes you profitable. Winning 9 out of 10 at terrible odds (0.95) makes you break even.\n");
-    prompt.push_str("- The best agents are not the ones who predict the most, or even the most accurately — they are the ones who **size their bets according to their edge**. Big when confident, small when uncertain, zero when the odds are against them.\n");
-    prompt.push_str("- Patience is a strategy. Skipping a bad opportunity is as valuable as taking a good one.\n\n");
-
-    prompt.push_str("**How markets work:**\n");
-    prompt.push_str("- Each market asks: will this asset's price go UP or DOWN within a time window (15m/30m/1h)?\n");
-    prompt.push_str("- You commit chips (virtual tokens) to your prediction. Winners get 1 chip per ticket. Losers get 0.\n");
-    prompt.push_str("- Chips come from Chip Feed: 10,000 chips every 4 hours. Your current balance is all you have until the next feed.\n\n");
-
-    prompt.push_str("**How pricing works (CLOB):**\n");
-    prompt.push_str("- `implied_up_prob` is the market price, NOT a forecast. It reflects what other agents have already committed.\n");
-    prompt.push_str("- When you buy UP at price 0.70, you pay 0.70 chips per ticket. If UP wins, you get 1.00 back (profit 0.30). If DOWN wins, you lose 0.70.\n");
-    prompt.push_str("- When you buy DOWN at price 0.70 (meaning implied_up=0.70), you pay 0.30 per ticket. If DOWN wins, you get 1.00 (profit 0.70). If UP wins, you lose 0.30.\n");
-    prompt.push_str("- **The price IS your breakeven accuracy.** At 0.70 UP, you need >70% accuracy on UP calls to profit. If your true edge is only 60%, buying UP at 0.70 is a losing play even if UP wins this time.\n\n");
-
-    prompt.push_str("**Using limit_price to express conviction:**\n");
-    prompt.push_str("- If implied_up_prob is 0.50 and you think UP has 65% true probability, bid 0.55-0.60 for UP. You're paying less than your expected value.\n");
-    prompt.push_str("- If you think UP has 80% probability, you can bid up to 0.75 and still have edge.\n");
-    prompt.push_str("- DO NOT just bid 0.50 every time. That's leaving money on the table. Express your conviction in the price!\n");
-    prompt.push_str("- Higher bids fill faster but have lower profit margin. Lower bids have higher margin but may not fill.\n\n");
-
-    prompt.push_str("**How you earn $PRED rewards:**\n");
-    prompt.push_str("- Participation Pool (20%): proportional to your submission count (capped at 300/day).\n");
-    prompt.push_str("- Alpha Pool (80%): proportional to your excess_score = max(0, balance - total_chips_fed_today). You earn Alpha only if you **grew** your chip balance beyond what was given.\n");
-    prompt.push_str("- The Alpha Pool is where the real money is. One well-sized winning prediction can earn more Alpha than dozens of small break-even ones.\n\n");
-
-    prompt.push_str("**Constraints and timing:**\n");
-    prompt.push_str("- **3 submissions per 15-minute timeslot. USE ALL 3.** Each submission earns participation rewards.\n");
-    prompt.push_str("- Unused submissions = wasted $PRED. Don't leave slots on the table.\n");
-    prompt.push_str("- You can spread them out or batch them, but by the end of the timeslot you should have submitted 3 times.\n");
-    prompt.push_str("- You can choose ANY market from the available list, not just the recommended one.\n\n");
+    // Game mechanics simplified
+    prompt.push_str("## Game Mechanics Brief\n");
+    prompt.push_str("- **Maximize Alpha**: Earn rewards by growing balance beyond the feed (10k chips/4h).\n");
+    prompt.push_str("- **Pricing**: `implied_up_prob` is your entry price. If you think probability is higher, buy UP.\n");
+    prompt.push_str("- **Quotas**: 3 submissions per 15m slot. Use ALL to maximize participation rewards.\n\n");
 
     // Response format
     prompt.push_str("## Your Response (STRICT JSON)\n\n");
@@ -875,7 +837,7 @@ fn build_prompt(
     prompt.push_str("- \"suggested_tp\": numerical profit target price\n");
     prompt.push_str("- \"suggested_sl\": numerical stop loss price\n");
     prompt.push_str("- \"reasoning\": Fresh MARKET analysis using confluence of indicators.\n");
-    prompt.push_str(&format!("- \"tickets\": how many chips (min 100, max {:.0}). Size based on confidence.\n", balance));
+    prompt.push_str(&format!("- \"tickets\": how many chips (min 100, max {:.0}, use Kelly Recommendation from Hint above).\n", balance));
     prompt.push_str(&format!("- \"market_id\": \"{}\"\n", market_id));
     prompt.push_str("- \"limit_price\": (optional) bid price for edge\n\n");
 
@@ -909,7 +871,7 @@ fn build_prompt(
     prompt.push_str("- Why THIS 15m window is likely UP or DOWN based on that data.\n");
     prompt.push_str("- Vary your opening, sentence structure, and vocabulary each round — never reuse a template.\n\n");
     prompt.push_str("Two reasonings by you on different markets should read as two different analyses, not two fills of the same template.\n\n");
-    prompt.push_str(&format!("- \"tickets\": integer, minimum 100, max {:.0}\n", balance));
+    prompt.push_str(&format!("- \"tickets\": integer, minimum 100, max {:.0}, follow Kelly Criterion sizing.\n", balance));
     prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\")\n", market_id));
     prompt.push_str("- \"limit_price\": (optional, 0.01-0.99) your bid price\n\n");
     prompt.push_str("**All text must be in English.**\n\n");
@@ -918,20 +880,7 @@ fn build_prompt(
     prompt.push_str("## Your Current State\n\n");
     prompt.push_str(&format!("- Balance: {:.0} chips\n", balance));
 
-    // Persona-specific sizing with concrete numbers
-    let (min_pct, max_pct, sizing_note) = match persona {
-        "degen" => (0.30, 0.50, "GO BIG. 400 tickets is NOT degen behavior."),
-        "sniper" => (0.25, 0.40, "When you shoot, make it count."),
-        "conservative" => (0.05, 0.15, "Stay disciplined."),
-        "contrarian" => (0.20, 0.35, "Fade the crowd with conviction."),
-        _ => (0.15, 0.25, "Size according to conviction."),
-    };
-    let min_tickets = (balance * min_pct).floor() as u32;
-    let max_tickets = (balance * max_pct).floor() as u32;
-    prompt.push_str(&format!(
-        "- **Your sizing ({}):** {}-{} tickets per trade. {}\n",
-        persona, min_tickets, max_tickets, sizing_note
-    ));
+    prompt.push_str("- **Sizing Directive:** Refer to the # Strategy Hint section for current Kelly Criterion recommendations.\n");
 
     // Submissions remaining with urgency
     if submissions_remaining > 0 {
@@ -1811,4 +1760,28 @@ fn calculate_bollinger_bands(prices: &[f64], period: usize, std_dev_mult: f64) -
     let bandwidth = if sma != 0.0 { (upper - lower) / sma } else { 0.0 };
     
     Some((sma, upper, lower, bandwidth))
+}
+
+fn load_strategy_hint(agent_id: &str) -> String {
+    let hive_base = std::env::var("AWP_HIVE_BASE")
+        .unwrap_or_else(|_| "/home/losbanditos/_code/awp-agents-project/agents".to_string());
+
+    let hint_path = PathBuf::from(hive_base)
+        .join(agent_id)
+        .join("home")
+        .join("strategy_hint.md");
+
+    match std::fs::read_to_string(&hint_path) {
+        Ok(content) if !content.trim().is_empty() => {
+            log_debug!("hint: loaded strategy_hint.md for {} ({} chars)", agent_id, content.len());
+            content
+        }
+        _ => {
+            log_warn!("hint: strategy_hint.md not found or empty for {}", agent_id);
+            format!(
+                "# Strategy Hint\n\nNo recent performance data available for {}. Using default sizing.\n",
+                agent_id
+            )
+        }
+    }
 }
