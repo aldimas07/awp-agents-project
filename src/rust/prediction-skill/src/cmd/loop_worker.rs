@@ -551,6 +551,9 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str, last_erro
             final_market, current_direction, limit_price_str, current_tickets, reasoning_hash, challenge_nonce
         );
 
+        log_info!("loop: submitting prediction for {} with {} tickets and reasoning ({} chars)", final_market, current_tickets, current_reasoning.len());
+        log_info!("loop: reasoning used: \"{}\"", current_reasoning);
+
         let mut body = json!({
             "market_id": final_market,
             "prediction": current_direction,
@@ -720,17 +723,26 @@ fn build_prompt(
     last_error: Option<String>,
 ) -> String {
     let agent_style = get_agent_style(agent_id);
+    let mut prompt = String::with_capacity(8000);
     
     // 1. Analytical Salt / Mission Directive (MOVE TO TOP for Gemini Flash focus)
     let custom_salt = std::env::var("CUSTOM_SALT").unwrap_or_default();
+    prompt.push_str("# MISSION DIRECTIVE\n");
+    prompt.push_str("You are a **12-year veteran crypto technical analyst** who only trades with high-probability confluences. Your goal is to maximize chip balance in this AWP prediction game.\n\n");
+
+    prompt.push_str("# CRITICAL RULES & CONSTRAINTS\n");
+    prompt.push_str("- **NEUTRAL Action**: If less than 2 technical indicators align, or if market is ranging with ADX < 20, you MUST output \"action\": \"skip\" and explain it as a NEUTRAL stance.\n");
+    prompt.push_str("- **Self-Critique**: If RSI > 75 and you predict UP, you MUST justify why this isn't an overbought trap. Same for RSI < 25 and predict DOWN.\n");
+    prompt.push_str("- **Tone**: Professional, technical, clinical. No excitement. Cite specific indicator values.\n\n");
+
     let agent_num: u32 = agent_id.chars().filter(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0);
     let base_salt = match agent_num % 6 {
-        1 => "## Mission Directive\nYou are a quantitative analyst. Base your entire reasoning on raw price data, candle body sizes, and precise deltas. Avoid flowery language; lead with hard numbers.",
-        2 => "## Mission Directive\nYou are a high-level market psychologist. Analyze the momentum shifts and participant exhaustion. Focus on who is trapped (buyers or sellers) and how they will react.",
-        3 => "## Mission Directive\nYou are a conservative risk manager. Your goal is to identify why a trade might fail. Only recommend a direction if the risk of reversal is minimal compared to the trend.",
-        4 => "## Mission Directive\nYou are a contrarian specialist. Look for 'obvious' retail patterns and explain why they might be liquidity traps. Focus on reversals and fake-outs.",
-        5 => "## Mission Directive\nYou are a trend-following momentum trader. Look for strong slope alignment across the recent price history. Focus on acceleration and volume confirmation.",
-        _ => "## Mission Directive\nYou are a multi-disciplinary analyst. Synthesize structure, volume, and implied probability into a concise trade thesis. Be precise and professional.",
+        1 => "## Specialist Focus\nYou are a quantitative analyst. Base your entire reasoning on raw price data, candle body sizes, and precise deltas. Lead with hard numbers.",
+        2 => "## Specialist Focus\nYou are a market psychologist. Analyze the momentum shifts and participant exhaustion. Focus on who is trapped (buyers or sellers).",
+        3 => "## Specialist Focus\nYou are a conservative risk manager. Your goal is to identify why a trade might fail. Only recommend a direction if the risk is minimal.",
+        4 => "## Specialist Focus\nYou are a contrarian specialist. Look for retirement patterns and explain why they might be liquidity traps. Focus on reversals.",
+        5 => "## Specialist Focus\nYou are a trend-following momentum trader. Look for strong slope alignment. Focus on acceleration and volume confirmation.",
+        _ => "## Specialist Focus\nYou are a multi-disciplinary analyst. Synthesize structure, volume, and implied probability into a concise trade thesis.",
     };
 
     // Extract market info
@@ -751,7 +763,6 @@ fn build_prompt(
         })
         .unwrap_or(0);
 
-    let mut prompt = String::with_capacity(8000);
 
     // 2. Identity and Style
     prompt.push_str(base_salt);
@@ -776,10 +787,12 @@ fn build_prompt(
     prompt.push_str("3. Evaluate the implied probability vs. your own technical reading.\n");
     prompt.push_str("4. Draft a draft of your reasoning that satisfies all market analysis requirements.\n\n");
 
-    // 4. Few-Shot Examples for Reasoning Quality
-    prompt.push_str("## Examples of Accepted Reasoning\n");
-    prompt.push_str("- Good (Technical): \"BTC price shows a steady climb with ascending lows in the last 4 candles. Volume is consistent, and implied_up at 0.52 indicates a fair entry for a trend-following UP call.\"\n");
-    prompt.push_str("- Good (Psychological): \"Resistance at 65400 held firm twice; the exhaustion of buyers at this level suggests a short-term rejection. Implied odds favor a DOWN play with strong R/R.\"\n\n");
+    // 4. Few-Shot Examples for Reasoning Quality (Super-Quant Edition)
+    prompt.push_str("## Examples of Professional Confluence Analysis\n");
+    prompt.push_str("- **Example 1 (High Confidence UP)**:\n");
+    prompt.push_str("  \"Analysis: RSI is at 32 (near oversold levels) on the 15m chart. EMA20 has just crossed above EMA50, signaling a potential trend reversal. MACD histogram is turning positive. 1H Anchor indicates a strong bullish trend. Confluence of 3 indicators suggests continuation of the bounce.\"\n");
+    prompt.push_str("- **Example 2 (Neutral/Skip)**:\n");
+    prompt.push_str("  \"Analysis: RSI is at 52 (neutral) and ADX is at 14, indicating a low-volatility ranging market. Price is oscillating between EMA20 and EMA50 without direction. Lack of confluence signals high risk of fake-out. Stance: NEUTRAL.\"\n\n");
 
     // 5. Previous Error Feedback (if any)
     if let Some(error) = last_error {
@@ -852,18 +865,21 @@ fn build_prompt(
     prompt.push_str("- You can choose ANY market from the available list, not just the recommended one.\n\n");
 
     // Response format
-    prompt.push_str("## Your Response\n\n");
+    prompt.push_str("## Your Response (STRICT JSON)\n\n");
     prompt.push_str("Output a JSON object with these fields:\n");
-    prompt.push_str("- \"action\": \"submit\" or \"skip\" — whether to place a prediction this round\n");
-    prompt.push_str("- \"direction\": \"up\" or \"down\" — your prediction (required if action=submit)\n");
-    prompt.push_str("- \"reasoning\": your MARKET analysis (80-2000 chars, ≥2 sentences). Required if action=submit. See reasoning requirements below.\n");
-    prompt.push_str(&format!("- \"tickets\": how many chips to commit (integer, minimum 100, max {:.0}). Size according to your persona and conviction!\n", balance));
-    prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\", required if action=submit)\n", market_id));
-    prompt.push_str("- \"limit_price\": (optional, 0.01-0.99) the max price you're willing to pay. If you believe UP has 70% probability, bid 0.60-0.65 to get edge. Higher price = easier fill but less profit. Omit for market order.\n\n");
-    prompt.push_str("**Skipping is rarely correct.** You should submit 3 times per timeslot. Only skip if:\n");
-    prompt.push_str("- All markets closing in <60 seconds (no time to fill)\n");
-    prompt.push_str("- You already used all 3 submissions this timeslot\n\n");
-    prompt.push_str("If you have submissions remaining, FIND A TRADE. Pick the best market and submit.\n\n");
+    prompt.push_str("- \"action\": \"submit\" or \"skip\". Use \"skip\" for NEUTRAL stances.\n");
+    prompt.push_str("- \"direction\": \"up\" or \"down\" (if action=submit)\n");
+    prompt.push_str("- \"confidence_score\": 0-100 (integer)\n");
+    prompt.push_str("- \"key_reasons\": List of bullet points citing specific indicator values.\n");
+    prompt.push_str("- \"suggested_tp\": numerical profit target price\n");
+    prompt.push_str("- \"suggested_sl\": numerical stop loss price\n");
+    prompt.push_str("- \"reasoning\": Fresh MARKET analysis using confluence of indicators.\n");
+    prompt.push_str(&format!("- \"tickets\": how many chips (min 100, max {:.0}). Size based on confidence.\n", balance));
+    prompt.push_str(&format!("- \"market_id\": \"{}\"\n", market_id));
+    prompt.push_str("- \"limit_price\": (optional) bid price for edge\n\n");
+
+    prompt.push_str("## Output Format\n\n");
+    prompt.push_str("DECISION: {\"action\": \"submit\", \"direction\": \"up\", \"confidence_score\": 85, \"key_reasons\": [\"RSI is 32\", \"EMA crossover\"], \"reasoning\": \"...\"}\n\n");
     prompt.push_str("## Research (Optional)\n\n");
     prompt.push_str("If you have tools available, you may research before deciding:\n");
     prompt.push_str("- Search for recent news about the asset\n");
@@ -1129,13 +1145,37 @@ fn build_prompt(
     }
     prompt.push('\n');
 
-    // Klines data
+    // Klines data and Technical Indicators
     if let Some(candles) = klines {
         if !candles.is_empty() {
+            let closes: Vec<f64> = candles.iter().filter_map(|c| c.get("close").and_then(|v| v.as_f64())).collect();
+            let highs: Vec<f64> = candles.iter().filter_map(|c| c.get("high").and_then(|v| v.as_f64())).collect();
+            let lows: Vec<f64> = candles.iter().filter_map(|c| c.get("low").and_then(|v| v.as_f64())).collect();
+
+            let long_ema = calculate_ema(&closes, 50).map(|v| v).unwrap_or(0.0);
+            let current_price = closes.last().copied().unwrap_or(0.0);
+            let anchor_trend = if current_price > long_ema { "BULLISH (Price > EMA50)" } else { "BEARISH (Price < EMA50)" };
+
+            prompt.push_str("## Technical Indicator Summary\n");
+            prompt.push_str(&format!("- **1H Anchor Trend (Simulated):** {}\n", anchor_trend));
+            
+            let rsi = calculate_rsi(&closes, 14).map(|v| format!("{:.2}", v)).unwrap_or_else(|| "N/A".into());
+            let ema20 = calculate_ema(&closes, 20).map(|v| format!("{:.2}", v)).unwrap_or_else(|| "N/A".into());
+            let ema50 = calculate_ema(&closes, 50).map(|v| format!("{:.2}", v)).unwrap_or_else(|| "N/A".into());
+            let macd = calculate_macd(&closes).map(|(m, s, h)| format!("MACD: {:.4}, Signal: {:.4}, Hist: {:.4}", m, s, h)).unwrap_or_else(|| "N/A".into());
+            let atr = calculate_atr(&highs, &lows, &closes, 14).map(|v| format!("{:.4}", v)).unwrap_or_else(|| "N/A".into());
+            let adx = calculate_adx(&highs, &lows, &closes, 14).map(|v| format!("{:.2}", v)).unwrap_or_else(|| "N/A".into());
+
+            prompt.push_str(&format!("- **RSI (14):** {}\n", rsi));
+            prompt.push_str(&format!("- **EMA (20/50):** {} / {}\n", ema20, ema50));
+            prompt.push_str(&format!("- **MACD (12/26/9):** {}\n", macd));
+            prompt.push_str(&format!("- **ATR (14):** {}\n", atr));
+            prompt.push_str(&format!("- **ADX (14):** {}\n\n", adx));
+
             prompt.push_str(&format!("## Klines ({} candles)\n\n", candles.len()));
             prompt.push_str("time | open | high | low | close | volume\n");
             prompt.push_str("--- | --- | --- | --- | --- | ---\n");
-            let start = if candles.len() > 20 { candles.len() - 20 } else { 0 };
+            let start = if candles.len() > 15 { candles.len() - 15 } else { 0 };
             for candle in &candles[start..] {
                 if let Some(obj) = candle.as_object() {
                     prompt.push_str(&format!(
@@ -1613,4 +1653,131 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
     } else {
         format!("{}...", s.chars().take(max_chars).collect::<String>())
     }
+}
+
+// --- Technical Indicators (Super-Quant Suite) ---
+
+fn calculate_sma(prices: &[f64], period: usize) -> Option<f64> {
+    if prices.len() < period { return None; }
+    let sum: f64 = prices.iter().rev().take(period).sum();
+    Some(sum / period as f64)
+}
+
+fn calculate_ema(prices: &[f64], period: usize) -> Option<f64> {
+    if prices.len() < period { return None; }
+    let k = 2.0 / (period as f64 + 1.0);
+    let mut ema = calculate_sma(&prices[0..period], period)?;
+    for price in prices.iter().skip(period) {
+        ema = price * k + ema * (1.0 - k);
+    }
+    Some(ema)
+}
+
+fn calculate_rsi(prices: &[f64], period: usize) -> Option<f64> {
+    if prices.len() <= period { return None; }
+    let mut gains = 0.0;
+    let mut losses = 0.0;
+
+    for i in 1..=period {
+        let diff = prices[i] - prices[i-1];
+        if diff >= 0.0 { gains += diff; } else { losses -= diff; }
+    }
+
+    let mut avg_gain = gains / period as f64;
+    let mut avg_loss = losses / period as f64;
+
+    for i in (period + 1)..prices.len() {
+        let diff = prices[i] - prices[i-1];
+        let (g, l) = if diff >= 0.0 { (diff, 0.0) } else { (0.0, -diff) };
+        avg_gain = (avg_gain * (period as f64 - 1.0) + g) / period as f64;
+        avg_loss = (avg_loss * (period as f64 - 1.0) + l) / period as f64;
+    }
+
+    if avg_loss == 0.0 { return Some(100.0); }
+    let rs = avg_gain / avg_loss;
+    Some(100.0 - (100.0 / (1.0 + rs)))
+}
+
+fn calculate_macd(prices: &[f64]) -> Option<(f64, f64, f64)> {
+    if prices.len() < 35 { return None; } // Need enough data for 12/26/9
+    
+    // Calculate 12 and 26 EMA for the whole series to get MACD line
+    let mut macd_line_series = Vec::new();
+    let k12 = 2.0 / 13.0;
+    let k26 = 2.0 / 27.0;
+    
+    let mut ema12 = calculate_sma(&prices[0..12], 12)?;
+    let mut ema26 = calculate_sma(&prices[0..26], 26)?;
+    
+    for (i, &price) in prices.iter().enumerate() {
+        if i >= 12 { ema12 = price * k12 + ema12 * (1.0 - k12); }
+        if i >= 26 { 
+            ema26 = price * k26 + ema26 * (1.0 - k26);
+            macd_line_series.push(ema12 - ema26);
+        }
+    }
+
+    if macd_line_series.len() < 9 { return None; }
+    
+    // Calculate Signal Line (9 EMA of MACD Line)
+    let k9 = 2.0 / 10.0;
+    let mut signal_line = calculate_sma(&macd_line_series[0..9], 9)?;
+    for value in macd_line_series.iter().skip(9) {
+        signal_line = value * k9 + signal_line * (1.0 - k9);
+    }
+    
+    let current_macd = *macd_line_series.last()?;
+    Some((current_macd, signal_line, current_macd - signal_line))
+}
+
+fn calculate_atr(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Option<f64> {
+    if closes.len() <= period { return None; }
+    
+    let mut trs = Vec::new();
+    for i in 1..closes.len() {
+        let h_l = highs[i] - lows[i];
+        let h_pc = (highs[i] - closes[i-1]).abs();
+        let l_pc = (lows[i] - closes[i-1]).abs();
+        trs.push(h_l.max(h_pc).max(l_pc));
+    }
+    
+    calculate_sma(&trs, period)
+}
+
+fn calculate_adx(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Option<f64> {
+    if closes.len() <= period * 2 { return None; }
+    
+    let mut trs = Vec::new();
+    let mut plus_dm = Vec::new();
+    let mut minus_dm = Vec::new();
+    
+    for i in 1..closes.len() {
+        let tr = (highs[i] - lows[i]).max((highs[i] - closes[i-1]).abs()).max((lows[i] - closes[i-1]).abs());
+        trs.push(tr);
+        
+        let up_move = highs[i] - highs[i-1];
+        let down_move = lows[i-1] - lows[i];
+        
+        if up_move > down_move && up_move > 0.0 { plus_dm.push(up_move); } else { plus_dm.push(0.0); }
+        if down_move > up_move && down_move > 0.0 { minus_dm.push(down_move); } else { minus_dm.push(0.0); }
+    }
+    
+    let mut smooth_tr = trs.iter().take(period).sum::<f64>();
+    let mut smooth_plus = plus_dm.iter().take(period).sum::<f64>();
+    let mut smooth_minus = minus_dm.iter().take(period).sum::<f64>();
+    
+    let mut dx_series = Vec::new();
+    
+    for i in period..trs.len() {
+        smooth_tr = smooth_tr - (smooth_tr / period as f64) + trs[i];
+        smooth_plus = smooth_plus - (smooth_plus / period as f64) + plus_dm[i];
+        smooth_minus = smooth_minus - (smooth_minus / period as f64) + minus_dm[i];
+        
+        let di_plus = 100.0 * (smooth_plus / smooth_tr);
+        let di_minus = 100.0 * (smooth_minus / smooth_tr);
+        let dx = 100.0 * (di_plus - di_minus).abs() / (di_plus + di_minus);
+        dx_series.push(dx);
+    }
+    
+    calculate_sma(&dx_series, period)
 }

@@ -56,16 +56,42 @@ def generate_hint(agent_id):
             hint_lines.append("> [!WARNING]\n")
             hint_lines.append("> Your reasoning is being REJECTED frequently. You MUST change your analytical style immediately to avoid being flagged as a bot.\n\n")
 
-        # Performance-based Risk Management
+        # 1. Performance-based Kelly Criterion (v2.0)
         filled_count = last_results.count("✅") + last_results.count("🌗")
-        if len(last_results) >= 3:
-            success_rate = filled_count / len(last_results)
-            if success_rate > 0.6:
-                hint_lines.append("- Performance: **High**. Strategy is effective. You may maintain current sizing.\n")
-            elif success_rate < 0.3:
-                hint_lines.append("- Performance: **Low**. High failure rate. **ACTION: REDUCE TICKET SIZE BY 50%** to preserve capital.\n")
-            else:
-                hint_lines.append("- Performance: **Stable**. Market conditions are mixed.\n")
+        num_trades = len(last_results)
+        win_rate = filled_count / num_trades if num_trades > 0 else 0
+        
+        # Simple Kelly: K% = W - (1-W)/R. Assuming Reward:Risk ratio of 1.4 for 15m/30m windows.
+        r_ratio = 1.4
+        kelly_pct = win_rate - ((1 - win_rate) / r_ratio)
+        kelly_pct = max(0, min(kelly_pct, 0.4)) # Cap at 40%
+        
+        # Fractional Kelly (0.5x) for safety
+        safe_kelly = kelly_pct * 0.5
+        
+        hint_lines.append(f"- Strategy Performance: **{win_rate*100:.1f}% Win Rate**\n")
+        
+        if win_rate > 0.6:
+            hint_lines.append(f"- Kelly Recommended Size: **{safe_kelly*100:.1f}% of balance** (High Confidence)\n")
+        elif win_rate < 0.3 and num_trades >= 3:
+             hint_lines.append(f"- Kelly Recommended Size: **5% (Fixed)** - *Drawdown protection active.*\n")
+             safe_kelly = 0.05
+        else:
+            hint_lines.append(f"- Kelly Recommended Size: **{safe_kelly*100:.1f}% of balance** (Adaptive)\n")
+
+        hint_lines.append(f"\n# Technical Performance Report\n")
+        hint_lines.append(f"Last {num_trades} trades sequence: {' '.join(last_results)}\n")
+        
+        # Recent Failure Analysis (Pseudo-reasoning extraction)
+        failed_agents = df[(df['agent_id'] == agent_id) & (df['submission_status'].str.contains('rejected', case=False, na=False))].head(2)
+        if not failed_agents.empty:
+            hint_lines.append("\n**Reason for recent failures:**\n")
+            for _, failed in failed_agents.iterrows():
+                err = failed.get('error_message', 'Unknown error')
+                hint_lines.append(f"- {err}\n")
+
+        # Instruction for the LLM
+        hint_lines.append(f"\n**DIRECTIVE:** Your base sizing for this round should be around **{safe_kelly*100:.1f}%** of your balance. If your confidence is extremely high (85+), you may bump it slightly. If you see ADX < 20, SKIP.\n")
 
         return "".join(hint_lines)
 
