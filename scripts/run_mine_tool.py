@@ -912,6 +912,7 @@ def build_parser() -> argparse.ArgumentParser:
             "validator-status",
         ),
     )
+    parser.add_argument("--name", help="Optional tag for observability in ps aux")
     parser.add_argument("args", nargs="*")
     return parser
 

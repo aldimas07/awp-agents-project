@@ -95,7 +95,8 @@ def start_background_worker(
     log_path = output_root / f"{session_id}.log"
     from common import resolve_worker_python, worker_subprocess_env
     python_bin = resolve_worker_python(project_root)
-    command = [python_bin, "-u", str(script_path), "run-worker", str(interval), "0"]
+    miner_id = os.environ.get("MINER_ID", "unknown")
+    command = [python_bin, "-u", str(script_path), "run-worker", str(interval), "0", "--name", miner_id]
     env = worker_subprocess_env()
 
     with log_path.open("a", encoding="utf-8") as handle:
