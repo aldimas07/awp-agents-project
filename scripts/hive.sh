@@ -142,12 +142,13 @@ function stop_agent() {
         echo "  No active miner PID found for $name."
     fi
 
-    # --- Stop Predict WorkNet (if running) ---
+    # --- Stop Predict WorkNet ---
+    echo "  Stopping predictor for $name..."
+    pkill -9 -f "agent_wrapper.sh $name" 2>/dev/null && echo "    Wrapper for $name killed."
+    pkill -9 -f "predict-agent .* --agent-id $name" 2>/dev/null && echo "    Predictor for $name killed."
     if [ -f "$PIDS_DIR/$name-predict.pid" ]; then
-        echo "  Stopping predictor for $name..."
-        kill $(cat "$PIDS_DIR/$name-predict.pid") 2>/dev/null && echo "    Predictor PID killed." || echo "    Predictor PID not found/killed."
-    else
-        echo "  No active predictor PID found for $name."
+        kill $(cat "$PIDS_DIR/$name-predict.pid") 2>/dev/null
+        rm -f "$PIDS_DIR/$name-predict.pid"
     fi
     rm -f "$PIDS_DIR/$name-mine.pid" "$PIDS_DIR/$name-predict.pid" # Ensure both PID files are removed
     
