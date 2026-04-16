@@ -1809,6 +1809,7 @@ class AgentWorker:
 
 def build_worker_from_env(*, auto_register_awp: bool = False) -> AgentWorker:
     from signer import WalletSigner
+    from pk_signer import PrivateKeySigner
 
     output_root = Path(os.environ.get("CRAWLER_OUTPUT_ROOT", str(CRAWLER_ROOT / "output" / "agent-runs"))).resolve()
     # Prefer the current interpreter so the child process does not use a bare `python` outside the venv on Windows.
@@ -1846,8 +1847,10 @@ def build_worker_from_env(*, auto_register_awp: bool = False) -> AgentWorker:
         registration = resolve_awp_registration(auto_register=True)
         if registration.get("registration_required"):
             raise RuntimeError(str(registration.get("message") or "wallet registration required before startup"))
-    signer: WalletSigner | None = None
-    if wallet_token.strip():
+    signer: Any = None
+    if os.environ.get("AWP_PRIVATE_KEY"):
+        signer = PrivateKeySigner(os.environ.get("AWP_PRIVATE_KEY"))
+    elif wallet_token.strip():
         signer = WalletSigner(wallet_bin=wallet_bin, session_token=wallet_token)
 
     client = PlatformClient(

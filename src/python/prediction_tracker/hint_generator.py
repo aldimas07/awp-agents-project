@@ -104,12 +104,12 @@ def generate_hint(agent_id):
         hint_lines.append(f"- Kelly Recommended Size: **{safe_kelly*100:.1f}% of balance** (Adaptive + Safe)\n")
 
         # ==================== DIRECTIVE (untuk Gemini 2.5 Flash) ====================
-        hint_lines.append("\n**DIRECTIVE (Veteran Analyst Mode):**\n")
+        hint_lines.append("\n**CRITICAL INSTRUCTION FOR LLM REASONING:**\n")
+        hint_lines.append("- Output JSON structured as normal, but for the `reasoning` field, you MUST act like a chaotic, retail crypto day trader writing personal notes or live-tweeting.\n")
+        hint_lines.append("- DO NOT use bullet points, do NOT use lists, do NOT use robotic words like 'exhibits', 'indicates', 'noteworthy', 'confluence'.\n")
+        hint_lines.append("- Write ONE continuous paragraph. Use informal phrasing, short sentences, and slang (e.g. 'looks dumping', 'bags packed', 'getting wicked out').\n")
+        hint_lines.append("- Briefly mention the actual metric (e.g., 'macd is dead', 'ema cross just fired', 'adx looks chopped'), but keep it human, messy, and brief.\n")
         hint_lines.append("- Gunakan sizing **persis** sesuai rekomendasi Kelly di atas.\n")
-        hint_lines.append("- Jika confidence > 85 dan ADX > 25 + Bollinger squeeze + RSI konfluen → boleh naikkan sedikit.\n")
-        hint_lines.append("- Jika ADX < 20 → FORCE SKIP (sideways market).\n")
-        hint_lines.append("- Selalu cek Indicator Contradiction sebelum submit.\n")
-        hint_lines.append("- Output JSON structured + reasoning yang klinis dan data-driven.\n")
 
         return "".join(hint_lines)
 
