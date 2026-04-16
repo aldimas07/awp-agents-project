@@ -626,27 +626,24 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str, last_erro
                         .collect::<Vec<_>>()
                         .join(" ");
                     let spell_prompt = format!(
-                        "URGENT FIX REQUIRED: Your previous reasoning was REJECTED by the server.\n\
-                        The server requires that your `reasoning` field contains {} consecutive words \
-                        whose FIRST LETTERS spell the acrostic '{}' IN ORDER (i.e., a word starting \
-                        with '{}', then '{}', etc.).\n\n\
-                        EXAMPLE of a valid acrostic for '{}': a sentence like '{}'\n\n\
-                        You MUST rewrite your market analysis reasoning to naturally include this acrostic \
-                        somewhere in the text. The rule only applies to any {} consecutive words anywhere \
-                        in the reasoning — it does not have to be the opening.\n\n\
-                        Market: {}\nYour previous direction choice: {}\n\
-                        Rewrite the reasoning to be a valid market analysis that also satisfies the acrostic constraint.\n\
+                        "URGENT FIX REQUIRED: Your previous reasoning was REJECTED by the server.\n\n\
+                        CRITICAL CONSTRAINTS:\n\
+                        1. You MUST solve the acrostic: Your `reasoning` must contain {} consecutive words \
+                        whose FIRST LETTERS spell the acrostic '{}' IN ORDER.\n\
+                        2. You MUST maintain your Persona: Senior Quantitative Lead. Clinical, clipped, data-first shorthand.\n\
+                        3. FORBIDDEN WORDS: Notable, Furthermore, Overall, Essentially, Therefore, Interestingly.\n\
+                        4. NO AI FILLER: Do not use 'As of the latest', 'Based on the indicators', etc.\n\n\
+                        EXAMPLE of valid acrostic for '{}': '{}'\n\n\
+                        Rewrite market analysis for {} (Direction: {}) targeting {} tickets.\n\
                         Output ONLY valid JSON: DECISION: {{\"action\": \"submit\", \"direction\": \"{}\", \"tickets\": {}, \
                         \"market_id\": \"{}\", \"reasoning\": \"...your corrected reasoning here...\"}}",
                         letters.len(),
                         acrostic,
-                        letters.first().copied().unwrap_or('?'),
-                        letters.get(1).copied().unwrap_or('?'),
                         acrostic,
                         example,
-                        letters.len(),
                         final_market,
                         current_direction,
+                        current_tickets,
                         current_direction,
                         current_tickets,
                         final_market,
@@ -729,18 +726,16 @@ fn build_prompt(
     // 1. MISSION DIRECTIVE + STRATEGY HINT (INJECTED FROM PYTHON)
     let custom_salt = std::env::var("CUSTOM_SALT").unwrap_or_default();
     prompt.push_str("# MISSION DIRECTIVE\n");
-    prompt.push_str("You are a **12-year veteran crypto technical analyst** who only trades with high-probability confluences. Your goal is to maximize chip balance in this AWP prediction game.\n\n");
+    prompt.push_str("You are a **Senior Quantitative Lead** with a 12-year track record. You communicate in heavy technical shorthand. Your goal is to maximize balance while staying under the radar of server-side AI detection filters.\n\n");
 
     // === STRATEGY HINT INJECTION (Kelly + Streak + Drawdown) ===
     let strategy_hint = load_strategy_hint(agent_id);
     prompt.push_str(&strategy_hint);
     prompt.push_str("\n\n");
 
-    prompt.push_str("# CRITICAL RULES & CONSTRAINTS\n");
-    prompt.push_str("- **Regime Detection**: If ADX < 20, you MUST prioritize NEUTRAL/SKIP unless Bollinger Bands show a significant 'Squeeze' breakout.\n");
-    prompt.push_str("- **Overconfidence Filter**: If your confidence score > 80 but fewer than 2 indicators align, you MUST lower your confidence to 65 and re-evaluate sizing.\n");
-    prompt.push_str("- **Self-Critique**: If RSI > 75 and you predict UP, you MUST justify why this isn't an overbought trap. Same for RSI < 25 and predict DOWN.\n");
-    prompt.push_str("- **Tone**: Professional, technical, clinical. No excitement. Cite specific indicator values.\n\n");
+    prompt.push_str("- **The 'Human' Analyst Style**: Lead with raw numbers. NO 'As of the latest snapshot' or 'The market shows'. Just state facts: 'EMA20/50 gap widening, MACD histogram +12.5...'\n");
+    prompt.push_str("- **Regime Selection**: If ADX < 20, you MUST prioritize NEUTRAL/SKIP unless Bollinger Bands show a significant 'Squeeze' breakout.\n");
+    prompt.push_str("- **Tone Filter**: Clinical, clipped, technical shorthand. Avoid flowery adjectives. Never repeat a sentence structure between two markets.\n\n");
 
     let agent_num: u32 = agent_id.chars().filter(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0);
     let base_salt = match agent_num % 6 {
@@ -795,11 +790,11 @@ fn build_prompt(
     prompt.push_str("4. Draft a draft of your reasoning that satisfies all market analysis requirements.\n\n");
 
     // 4. Few-Shot Examples for Reasoning Quality (Super-Quant Edition)
-    prompt.push_str("## Examples of Professional Confluence Analysis\n");
-    prompt.push_str("- **Example 1 (High Confidence UP)**:\n");
-    prompt.push_str("  \"Analysis: RSI is at 32 (near oversold levels) on the 15m chart. EMA20 has just crossed above EMA50, signaling a potential trend reversal. MACD histogram is turning positive. 1H Anchor indicates a strong bullish trend. Confluence of 3 indicators suggests continuation of the bounce.\"\n");
-    prompt.push_str("- **Example 2 (Neutral/Skip)**:\n");
-    prompt.push_str("  \"Analysis: RSI is at 52 (neutral) and ADX is at 14, indicating a low-volatility ranging market. Price is oscillating between EMA20 and EMA50 without direction. Lack of confluence signals high risk of fake-out. Stance: NEUTRAL.\"\n\n");
+    prompt.push_str("## Examples of Accepted Professional Analysis\n");
+    prompt.push_str("- **Example (UP)**:\n");
+    prompt.push_str("  \"BTC/USDT 15m structure remains bullish; RSI 32 oversold bounce aligns with EMA20/50 bullish crossover. MACD histogram expanding at 10.4. Resistance at 74800 is key. High confluence for upward continuation from this squeeze.\"\n");
+    prompt.push_str("- **Example (NEUTRAL)**:\n");
+    prompt.push_str("  \"Market flat. ADX 12.3 signifies no trend. Price trapped between EMA20/50 midline. Bollinger squeeze suggest incoming move but lacks direction. Standing aside until breakout.\"\n\n");
 
     // 5. Previous Error Feedback (if any)
     if let Some(error) = last_error {
@@ -860,12 +855,9 @@ fn build_prompt(
     prompt.push_str("- \"reasoning\": 80-2000 chars, ≥2 sentences, must mention the asset or a direction word\n");
     prompt.push_str("\n## Reasoning Requirements (IMPORTANT)\n\n");
     prompt.push_str("Your reasoning must be a fresh MARKET analysis — not boilerplate about yourself.\n\n");
-    prompt.push_str("**DO NOT** open with or include:\n");
-    prompt.push_str("- \"I have N open positions...\", \"I CANNOT bet...\", \"Adding to existing position...\"\n");
-    prompt.push_str("- Any reference to your own wallet, persona, strategy name, farm id, leader id, or submission count.\n");
-    prompt.push_str("- Fixed phrases about hedging, flipping, dual-hedge, timeslot quotas, etc.\n");
-    prompt.push_str("- **Forbidden Phrases (AWP Filter Triggers):** \"Based on the market data\", \"Given the current conditions\", \"In light of the price action\", \"Looking at the klines\", \"To summarize my analysis\", \"As an AI model\".\n");
-    prompt.push_str("- Anything that would read the same if pasted into another market.\n\n");
+    prompt.push_str("- **Forbidden Transitions/Words:** \"Notably\", \"Furthermore\", \"Additionally\", \"In addition\", \"Consequently\", \"Therefore\", \"However\", \"To summarize\", \"Overall\", \"Essentially\", \"Critically\", \"Interestingly\".\n");
+    prompt.push_str("- **Forbidden AI Phrasing:** \"The market exhibits\", \"Based on the data provided\", \"Looking at the indicators\", \"It is important to note\", \"We can see that\", \"The analysis suggests\".\n");
+    prompt.push_str("- **DO NOT use templates.** If I see two agents using the same sentence structure, I will penalize you.\n\n");
     prompt.push_str("**DO** include:\n");
     prompt.push_str("- At least one specific current market data point from the snapshot above (price, a recent kline value, orderbook best price, spread, or a concrete indicator reading).\n");
     prompt.push_str("- Why THIS 15m window is likely UP or DOWN based on that data.\n");

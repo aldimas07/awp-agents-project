@@ -7,8 +7,17 @@ import shutil
 import subprocess
 import sys
 import time
+import logging
 from pathlib import Path
 from typing import Any
+
+def _configure_background_logging() -> None:
+    """Configures root logging for background workers to emit INFO to stderr."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 # SKILL_ROOT is now PROJECT_ROOT for the purpose of this script

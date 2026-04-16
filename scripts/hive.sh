@@ -74,7 +74,7 @@ function start_agent() {
     export AWP_PRIVATE_KEY
     export AWP_ADDRESS
     export WORKER_STATE_ROOT="$agent_dir/state" # Miner state root
-    export MINER_ID="$name" # Miner ID is agent's name
+    export MINER_ID=${MINER_ID:-$name} # Miner ID is agent's name (fallback)
     
     # Ensure global config vars are exported (these usually come from config/.env)
     export PLATFORM_BASE_URL
