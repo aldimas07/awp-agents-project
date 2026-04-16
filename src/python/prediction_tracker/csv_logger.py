@@ -115,17 +115,31 @@ def follow_log_file(agent_id, log_file_path, last_position):
         print(f"Error reading log file for {agent_id}: {e}")
     return new_entries
 
+RECENT_WRITES = set()
+RECENT_WRITES_MAX_SIZE = 1000
+
 def write_to_csv(data_row):
-    """Writes a parsed log entry dictionary to the CSV with file locking."""
+    """Writes a parsed log entry dictionary to the CSV with file locking and deduplication."""
+    global RECENT_WRITES
+    
+    # Simple hash based on identity fields to prevent duplicates (B11)
+    # We use agent_id + timestamp + submission_status
+    entry_id = f"{data_row.get('agent_id')}_{data_row.get('timestamp')}_{data_row.get('submission_status')}_{data_row.get('request_id')}"
+    if entry_id in RECENT_WRITES:
+        return
+    
     with open(CSV_FILE, 'a', newline='') as f:
-        # Acquire an exclusive lock on the file
         try:
             fcntl.flock(f, fcntl.LOCK_EX)
             writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
             writer.writerow(data_row)
-            f.flush() # Ensure it's written to disk before unlocking
+            f.flush()
+            
+            # Record this write
+            RECENT_WRITES.add(entry_id)
+            if len(RECENT_WRITES) > RECENT_WRITES_MAX_SIZE:
+                RECENT_WRITES.pop() # Simple cleanup
         finally:
-            # Release the lock
             fcntl.flock(f, fcntl.LOCK_UN)
 
 

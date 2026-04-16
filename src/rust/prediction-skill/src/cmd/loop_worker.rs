@@ -103,6 +103,7 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
     let mut iteration: u64 = 0;
     let mut consecutive_empty = 0u32;
     let mut consecutive_errors = 0u32;
+    let mut last_error_context: Option<String> = None;
 
     while running.load(Ordering::SeqCst) {
         iteration += 1;
@@ -114,7 +115,7 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
         log_info!("loop: === iteration {} ===", iteration);
         let iter_start = Instant::now();
 
-        match run_iteration(server_url, &openclaw_bin_path, &args.agent_id) {
+        match run_iteration(server_url, &openclaw_bin_path, &args.agent_id, last_error_context.clone()) {
             IterationResult::Submitted { market, direction, tickets, tickets_filled, order_status } => {
                 let elapsed = iter_start.elapsed().as_secs_f64();
                 let fill_info = match order_status.as_str() {
@@ -134,6 +135,7 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
                 );
                 consecutive_empty = 0;
                 consecutive_errors = 0;
+                last_error_context = None; // Reset on success
             }
             IterationResult::Skipped { reason } => {
                 let elapsed = iter_start.elapsed().as_secs_f64();
@@ -171,6 +173,12 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
                     consecutive_errors
                 );
                 notify!(args.notify, "Round {}: LLM error — {}, retrying in {}s", iteration, reason, backoff);
+                
+                // If it was a reasoning rejection, save it for next time
+                if reason.contains("REASONING_REJECTED") {
+                    last_error_context = Some(reason);
+                }
+                
                 interruptible_sleep(backoff, &running);
                 continue;
             }
@@ -184,6 +192,12 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
                     consecutive_errors
                 );
                 notify!(args.notify, "Round {}: Error — {}, retrying in {}s", iteration, reason, backoff);
+                
+                // Save reasoning rejection errors to context
+                if reason.contains("REASONING_REJECTED") {
+                    last_error_context = Some(reason);
+                }
+                
                 interruptible_sleep(backoff, &running);
                 continue;
             }
@@ -223,7 +237,7 @@ enum IterationResult {
     },
 }
 
-fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> IterationResult {
+fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str, last_error: Option<String>) -> IterationResult {
     // 1. Create API client
     let client = match ApiClient::new(server_url.to_string()) {
         Ok(c) => c,
@@ -444,6 +458,7 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
         &recent_results,
         &challenge,
         agent_id,
+        last_error,
     );
 
     // 8. Call LLM
@@ -702,9 +717,23 @@ fn build_prompt(
     recent_results: &Option<Vec<Value>>,
     challenge: &Value,
     agent_id: &str,
+    last_error: Option<String>,
 ) -> String {
     let agent_style = get_agent_style(agent_id);
-    // Extract market info — support both direct market object and recommend response format
+    
+    // 1. Analytical Salt / Mission Directive (MOVE TO TOP for Gemini Flash focus)
+    let custom_salt = std::env::var("CUSTOM_SALT").unwrap_or_default();
+    let agent_num: u32 = agent_id.chars().filter(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0);
+    let base_salt = match agent_num % 6 {
+        1 => "## Mission Directive\nYou are a quantitative analyst. Base your entire reasoning on raw price data, candle body sizes, and precise deltas. Avoid flowery language; lead with hard numbers.",
+        2 => "## Mission Directive\nYou are a high-level market psychologist. Analyze the momentum shifts and participant exhaustion. Focus on who is trapped (buyers or sellers) and how they will react.",
+        3 => "## Mission Directive\nYou are a conservative risk manager. Your goal is to identify why a trade might fail. Only recommend a direction if the risk of reversal is minimal compared to the trend.",
+        4 => "## Mission Directive\nYou are a contrarian specialist. Look for 'obvious' retail patterns and explain why they might be liquidity traps. Focus on reversals and fake-outs.",
+        5 => "## Mission Directive\nYou are a trend-following momentum trader. Look for strong slope alignment across the recent price history. Focus on acceleration and volume confirmation.",
+        _ => "## Mission Directive\nYou are a multi-disciplinary analyst. Synthesize structure, volume, and implied probability into a concise trade thesis. Be precise and professional.",
+    };
+
+    // Extract market info
     let asset = recommended.get("asset").and_then(|v| v.as_str()).unwrap_or("BTC/USDT");
     let window = recommended.get("window").and_then(|v| v.as_str()).unwrap_or("15m");
     let implied_up = recommended.get("implied_up_prob")
@@ -722,14 +751,42 @@ fn build_prompt(
         })
         .unwrap_or(0);
 
-    let mut prompt = String::with_capacity(6000);
+    let mut prompt = String::with_capacity(8000);
 
-    // Identity, stakes, and motivation
+    // 2. Identity and Style
+    prompt.push_str(base_salt);
+    prompt.push_str("\n\n");
+    if !custom_salt.is_empty() {
+        prompt.push_str("## Analytical Focus\n");
+        prompt.push_str(&custom_salt);
+        prompt.push_str("\n\n");
+    }
+    
     prompt.push_str(&format!(
-        "You are a prediction agent competing in AWP Predict WorkNet{}.\n\n",
-        if persona != "none" { format!(" (persona: {})", persona) } else { String::new() }
+        "You are an AWP Trading Agent. Current Profile: {} / Style: {}\n\n",
+        if persona != "none" { persona } else { "independent" },
+        agent_style
     ));
-    prompt.push_str(&format!("**Your unique trading style:** {}\n\n", agent_style));
+
+    // 3. Chain-of-Thought (CoT) Instructions
+    prompt.push_str("## Analysis Protocol (Chain-of-Thought)\n");
+    prompt.push_str("Before outputting your final JSON decision, perform a 'Thinking' step in your internal logic:\n");
+    prompt.push_str("1. Identify the primary trend from Klines (Bullish, Bearish, or Sideways).\n");
+    prompt.push_str("2. Analyze the orderbook spread and volume imbalance.\n");
+    prompt.push_str("3. Evaluate the implied probability vs. your own technical reading.\n");
+    prompt.push_str("4. Draft a draft of your reasoning that satisfies all market analysis requirements.\n\n");
+
+    // 4. Few-Shot Examples for Reasoning Quality
+    prompt.push_str("## Examples of Accepted Reasoning\n");
+    prompt.push_str("- Good (Technical): \"BTC price shows a steady climb with ascending lows in the last 4 candles. Volume is consistent, and implied_up at 0.52 indicates a fair entry for a trend-following UP call.\"\n");
+    prompt.push_str("- Good (Psychological): \"Resistance at 65400 held firm twice; the exhaustion of buyers at this level suggests a short-term rejection. Implied odds favor a DOWN play with strong R/R.\"\n\n");
+
+    // 5. Previous Error Feedback (if any)
+    if let Some(error) = last_error {
+        prompt.push_str("## CRITICAL: Correction for Previous Failure\n");
+        prompt.push_str(&format!("Your last submission was REJECTED with the following error:\n> {}\n", error));
+        prompt.push_str("You MUST significantly vary your reasoning style and ensure it is unique, technical, and does not repeat previous patterns.\n\n");
+    }
 
     // SMHL Challenge moved to the bottom of the prompt to ensure maximum 
     // attention from the LLM after processing all the market data.
@@ -828,6 +885,7 @@ fn build_prompt(
     prompt.push_str("- \"I have N open positions...\", \"I CANNOT bet...\", \"Adding to existing position...\"\n");
     prompt.push_str("- Any reference to your own wallet, persona, strategy name, farm id, leader id, or submission count.\n");
     prompt.push_str("- Fixed phrases about hedging, flipping, dual-hedge, timeslot quotas, etc.\n");
+    prompt.push_str("- **Forbidden Phrases (AWP Filter Triggers):** \"Based on the market data\", \"Given the current conditions\", \"In light of the price action\", \"Looking at the klines\", \"To summarize my analysis\", \"As an AI model\".\n");
     prompt.push_str("- Anything that would read the same if pasted into another market.\n\n");
     prompt.push_str("**DO** include:\n");
     prompt.push_str("- At least one specific current market data point from the snapshot above (price, a recent kline value, orderbook best price, spread, or a concrete indicator reading).\n");
@@ -1130,29 +1188,7 @@ fn build_prompt(
         prompt.push_str("\nYou may choose a different market by setting \"market_id\" in your response.\n\n");
     }
 
-    // Analytical Salt: Each agent gets a unique analytical perspective to ensure
-    // reasoning diversity and prevent REASONING_TOO_SIMILAR rejections from the server.
-    // We prioritize CUSTOM_SALT from .env if present.
-    let custom_salt = std::env::var("CUSTOM_SALT").unwrap_or_default();
-    
-    let agent_num: u32 = agent_id.chars().filter(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0);
-    let base_salt = match agent_num % 6 {
-        1 => "## Mission Directive\nYou are a quantitative analyst. Base your entire reasoning on raw price data, candle body sizes, and precise deltas. Avoid flowery language; lead with hard numbers.",
-        2 => "## Mission Directive\nYou are a high-level market psychologist. Analyze the momentum shifts and participant exhaustion. Focus on who is trapped (buyers or sellers) and how they will react.",
-        3 => "## Mission Directive\nYou are a conservative risk manager. Your goal is to identify why a trade might fail. Only recommend a direction if the risk of reversal is minimal compared to the trend.",
-        4 => "## Mission Directive\nYou are a contrarian specialist. Look for 'obvious' retail patterns and explain why they might be liquidity traps. Focus on reversals and fake-outs.",
-        5 => "## Mission Directive\nYou are a trend-following momentum trader. Look for strong slope alignment across the recent price history. Focus on acceleration and volume confirmation.",
-        _ => "## Mission Directive\nYou are a multi-disciplinary analyst. Synthesize structure, volume, and implied probability into a concise trade thesis. Be precise and professional.",
-    };
-
-    prompt.push_str("\n");
-    if !custom_salt.is_empty() {
-        prompt.push_str("## Analytical Focus\n");
-        prompt.push_str(&custom_salt);
-        prompt.push_str("\n\n");
-    }
-    prompt.push_str(base_salt);
-    prompt.push_str("\n\n");
+    // ── SMHL challenge (mandatory constraints, obfuscated prompt from server) ──
 
     // ── SMHL challenge (mandatory constraints, obfuscated prompt from server) ──
     // Moving this to the end ensures the LLM sees it last, which is critical 
