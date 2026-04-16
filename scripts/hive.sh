@@ -12,6 +12,9 @@ PYTHON_VENV_PYTHON="$PROJECT_ROOT/.venv/bin/python"
 RUN_MINE_TOOL_SCRIPT="$PROJECT_ROOT/scripts/run_mine_tool.py"
 PREDICTION_TRACKER_WRAPPER="$PROJECT_ROOT/src/python/prediction_tracker/agent_wrapper.sh"
 
+# Ensure user's local bin is in PATH (important for awp-wallet, predict-agent)
+export PATH="/home/losbanditos/.local/bin:$PATH"
+
 # Ensure predict-agent binary is in PATH or accessible.
 # It should be installed to ~/.local/bin/predict-agent by setup.sh.
 if ! command -v predict-agent &> /dev/null
