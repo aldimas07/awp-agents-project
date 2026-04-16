@@ -98,6 +98,16 @@ def parse_log_entry(log_line, agent_id, current_state):
     if spell_retry_match:
         current_state["is_retry"] = True
     
+    # --- Skip Decision ---
+    skip_match = re.search(r"LLM chose to skip: (.*)", log_line)
+    if skip_match:
+        data.update(current_state)
+        data["submission_status"] = "skipped"
+        data["error_message"] = skip_match.group(1)
+        data["filled_amount"] = 0
+        data["predicted_amount"] = 0
+        return data
+
     return None
 
 def follow_log_file(agent_id, log_file_path, last_position):
@@ -153,9 +163,7 @@ def main():
         log_file_name = "predict.log" if "awp-hive" in str(log_base_dir) or "agent-runs" in str(log_base_dir) else "predict.log" # Defaulting for now
         log_file_path = os.path.join(log_base_dir, log_file_name)
         if os.path.exists(log_file_path):
-            with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                f.seek(0, os.SEEK_END)
-                last_positions[agent_id] = f.tell()
+            last_positions[agent_id] = 0
         else:
             print(f"Warning: Log file not found at {log_file_path} for {agent_id}. Will start tracking if created.")
 
