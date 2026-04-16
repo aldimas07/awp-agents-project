@@ -50,6 +50,15 @@ function start_agent() {
     if [ -z "$name" ]; then echo "Usage: hive start <name> [interval]"; return 1; fi
 
     local agent_dir="$AGENTS_BASE_DIR/$name"
+
+    # Load agent's .env if it exists
+    if [ -f "$agent_dir/.env" ]; then
+        echo "[Hive] Loading configuration from $agent_dir/.env"
+        # Export all variables from .env
+        set -a
+        source "$agent_dir/.env"
+        set +a
+    fi
     if [ ! -d "$agent_dir" ]; then echo "Agent $name not found in $AGENTS_BASE_DIR/"; return 1; fi
 
     # Source agent's specific .env file
@@ -72,6 +81,7 @@ function start_agent() {
     export OPENAI_BASE_URL
     export OPENAI_API_KEY
     export PREDICT_MODEL
+    export AWP_WALLET_BIN
     export OPENAI_MODEL # Fallback LLM if PREDICT_MODEL fails
 
     # Check ENABLE_MINER flag from agent's .env
