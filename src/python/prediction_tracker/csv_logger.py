@@ -4,6 +4,7 @@ import re
 import time
 import json
 import csv
+import fcntl
 from datetime import datetime
 from pathlib import Path
 
@@ -115,11 +116,17 @@ def follow_log_file(agent_id, log_file_path, last_position):
     return new_entries
 
 def write_to_csv(data_row):
-    """Writes a parsed log entry dictionary to the CSV."""
+    """Writes a parsed log entry dictionary to the CSV with file locking."""
     with open(CSV_FILE, 'a', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
-        writer.writerow(data_row)
-    # print(f"Logged: {data_row['agent_id']} - Iteration {data_row.get('iteration')} - Status: {data_row.get('submission_status')}")
+        # Acquire an exclusive lock on the file
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
+            writer.writerow(data_row)
+            f.flush() # Ensure it's written to disk before unlocking
+        finally:
+            # Release the lock
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def main():
