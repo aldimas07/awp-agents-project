@@ -1412,12 +1412,16 @@ class AgentWorker:
         item: WorkItem,
         fail_reason: str,
     ) -> None:
-        """Report repeat_crawl failure to platform so it can reassign."""
+        """Report repeat_crawl failure to platform so it can reassign.
+
+        Per API spec, report body is {"cleaned_data": "...", "failed": bool}.
+        fail_reason is logged locally but NOT sent to platform (not in spec).
+        """
         log = logging.getLogger("agent.repeat_crawl")
         try:
             self.client.report_repeat_crawl_task_result(
                 item.claim_task_id,
-                {"failed": True, "fail_reason": fail_reason},
+                {"cleaned_data": "", "failed": True},
             )
             log.info("repeat_crawl %s reported as failed (%s)", item.claim_task_id, fail_reason)
         except Exception as exc:

@@ -630,13 +630,13 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str, last_erro
                         CRITICAL CONSTRAINTS:\n\
                         1. You MUST solve the acrostic: Your `reasoning` must contain {} consecutive words \
                         whose FIRST LETTERS spell the acrostic '{}' IN ORDER.\n\
-                        2. You MUST maintain your Persona: Senior Quantitative Lead. Clinical, clipped, data-first shorthand.\n\
-                        3. FORBIDDEN WORDS: Notable, Furthermore, Overall, Essentially, Therefore, Interestingly.\n\
-                        4. NO AI FILLER: Do not use 'As of the latest', 'Based on the indicators', etc.\n\n\
+                        2. You MUST maintain your Persona: Chaotic, informal retail crypto trader. Use slang (bags, moon, rekt), be slightly aggressive/hyper, and don't sound like a bot.\n\
+                        3. FORBIDDEN WORDS: Notable, Furthermore, Overall, Essentially, Therefore, Interestingly, Indicators, RSI shows, MACD indicates.\n\
+                        4. NO AI FILLER: Do not use 'As of the latest', 'Based on the indicators', or 'In conclusion'. Just spit pure trader logic with the acrostic built-in.\n\n\
                         EXAMPLE of valid acrostic for '{}': '{}'\n\n\
                         Rewrite market analysis for {} (Direction: {}) targeting {} tickets.\n\
                         Output ONLY valid JSON: DECISION: {{\"action\": \"submit\", \"direction\": \"{}\", \"tickets\": {}, \
-                        \"market_id\": \"{}\", \"reasoning\": \"...your corrected reasoning here...\"}}",
+                        \"market_id\": \"{}\", \"reasoning\": \"...your degen reasoning with the acrostic here...\"}}",
                         letters.len(),
                         acrostic,
                         acrostic,
