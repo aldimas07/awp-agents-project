@@ -60,6 +60,10 @@ class LLMClient:
         system_prompt: str = "",
     ) -> LLMResponse:
         """Send a completion request to an OpenAI-compatible API."""
+        # Optimization: Truncate prompt to save tokens (Alibaba free tier management)
+        if len(prompt) > 3000:
+            prompt = prompt[:2700] + "... [truncated to save tokens]"
+
         resolved_model = model or self.default_model
         if not self.base_url or not resolved_model:
             raise LLMConfigurationError("AI configuration is incomplete")
@@ -82,7 +86,31 @@ class LLMClient:
                 response.raise_for_status()
                 data = response.json()
         except Exception as exc:
-            raise LLMRequestError("LLM request failed") from exc
+            # Fallback logic: if primary fails, try qwen3.6-plus
+            fallback_model = "qwen3.6-plus"
+            if resolved_model != fallback_model:
+                import logging
+                log = logging.getLogger("llm_client")
+                log.warning("Primary model %s failed: %s. Falling back to %s", resolved_model, exc, fallback_model)
+                
+                # Re-build request for fallback model
+                fallback_url, fallback_payload = self._build_request(
+                    prompt=prompt,
+                    resolved_model=fallback_model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system_prompt=system_prompt,
+                    headers=headers,
+                )
+                try:
+                    async with httpx.AsyncClient(timeout=self.timeout) as client:
+                        response = await client.post(fallback_url, headers=headers, json=fallback_payload)
+                        response.raise_for_status()
+                        data = response.json()
+                except Exception as fallback_exc:
+                    raise LLMRequestError(f"Both primary ({resolved_model}) and fallback ({fallback_model}) failed") from fallback_exc
+            else:
+                raise LLMRequestError(f"LLM request for {resolved_model} failed") from exc
 
         content = self._extract_content(data)
         if not content:

@@ -103,13 +103,12 @@ def generate_hint(agent_id):
         hint_lines.append(f"- Strategy Performance: **{win_rate*100:.1f}% Win Rate** | Realized R/R: **{r_ratio:.2f}** | Streak: {win_streak}W/{loss_streak}L\n")
         hint_lines.append(f"- Kelly Recommended Size: **{safe_kelly*100:.1f}% of balance** (Adaptive + Safe)\n")
 
-        # ==================== DIRECTIVE (untuk Gemini 2.5 Flash) ====================
-        hint_lines.append("\n**CRITICAL INSTRUCTION FOR LLM REASONING:**\n")
-        hint_lines.append("- Output JSON structured as normal, but for the `reasoning` field, you MUST act like a chaotic, retail crypto day trader writing personal notes or live-tweeting.\n")
-        hint_lines.append("- DO NOT use bullet points, do NOT use lists, do NOT use robotic words like 'exhibits', 'indicates', 'noteworthy', 'confluence'.\n")
-        hint_lines.append("- Write ONE continuous paragraph. Use informal phrasing, short sentences, and slang (e.g. 'looks dumping', 'bags packed', 'getting wicked out').\n")
-        hint_lines.append("- Briefly mention the actual metric (e.g., 'macd is dead', 'ema cross just fired', 'adx looks chopped'), but keep it human, messy, and brief.\n")
-        hint_lines.append("- Gunakan sizing **persis** sesuai rekomendasi Kelly di atas.\n")
+        # ==================== DIRECTIVE (Compressed for Tokens) ====================
+        hint_lines.append("\n**DIRECTIVE:**\n")
+        hint_lines.append("- Output valid JSON starting with `DECISION: `.\n")
+        hint_lines.append("- For `reasoning` (80-300 chars): act like a chaotic crypto day trader (slang, informal, no bullet points, one paragraph).\n")
+        hint_lines.append("- Mention 1+ metrics (e.g. 'macd dead') human/messy style.\n")
+        hint_lines.append("- Use tickets size exactly as recommended below.\n")
 
         return "".join(hint_lines)
 

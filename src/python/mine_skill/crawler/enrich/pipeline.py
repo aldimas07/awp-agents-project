@@ -508,8 +508,7 @@ class EnrichPipeline:
                 prompt,
                 model_config=self._model_config or None,
                 system_prompt=(
-                    "You generate concise structured enrichment values from source "
-                    "fields. Return only the requested JSON output, no extra commentary."
+                    "Extract concise enrichment JSON from source. Valid JSON only."
                 ),
                 timeout=timeout,
             )
@@ -588,8 +587,8 @@ class EnrichPipeline:
         )
         return skipped_results + group_results
 
-    # Max chars for large text fields to avoid exceeding LLM context
-    _MAX_TEXT_CHARS = 30_000
+    # Max chars to save tokens (Alibaba free tier management)
+    _MAX_TEXT_CHARS = 3000
 
     def _collect_source_fields(self, spec: FieldGroupSpec, document: dict[str, Any]) -> dict[str, Any]:
         """Collect all relevant source fields from the document."""

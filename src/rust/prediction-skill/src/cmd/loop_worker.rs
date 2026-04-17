@@ -489,7 +489,7 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str, last_erro
     let decision = match parse_llm_response(&llm_text) {
         Ok(parsed) => parsed,
         Err(e) => {
-            log_warn!("loop: failed to parse LLM response: {}", e);
+            log_warn!("loop: failed to parse LLM response: {}. Raw response ({} chars): \"{}\"", e, llm_text.len(), llm_text);
             return IterationResult::LlmFailed {
                 reason: format!("parse failed: {e}"),
             };
@@ -795,251 +795,76 @@ fn build_prompt(
     prompt.push_str("  \"BTC/USDT 15m structure remains bullish; RSI 32 oversold bounce aligns with EMA20/50 bullish crossover. MACD histogram expanding at 10.4. Resistance at 74800 is key. High confluence for upward continuation from this squeeze.\"\n");
     prompt.push_str("- **Example (NEUTRAL)**:\n");
     prompt.push_str("  \"Market flat. ADX 12.3 signifies no trend. Price trapped between EMA20/50 midline. Bollinger squeeze suggest incoming move but lacks direction. Standing aside until breakout.\"\n\n");
+    prompt.push_str("## Analysis Protocol\n");
+    prompt.push_str("1. Identify trend (Bullish/Bearish/Sideways).\n");
+    prompt.push_str("2. Analyze orderbook/volume.\n");
+    prompt.push_str("3. Evaluate implied probability vs. technicals.\n");
+    prompt.push_str("4. Draft reasoning satisfying all constraints.\n\n");
 
     // 5. Previous Error Feedback (if any)
     if let Some(error) = last_error {
         prompt.push_str("## CRITICAL: Correction for Previous Failure\n");
-        prompt.push_str(&format!("Your last submission was REJECTED with the following error:\n> {}\n", error));
-        prompt.push_str("You MUST significantly vary your reasoning style and ensure it is unique, technical, and does not repeat previous patterns.\n\n");
+        prompt.push_str(&format!("Last submission REJECTED: {}\n", error));
+        prompt.push_str("Vary reasoning style. Do not repeat patterns.\n\n");
     }
-
-    // SMHL Challenge moved to the bottom of the prompt to ensure maximum 
-    // attention from the LLM after processing all the market data.
-    // Violated constraints = rejected submissions.
 
     prompt.push_str(&format!(
         "Trade Context: Analyzing for profile {} with strategy-led constraints.\n\n",
         if persona != "none" { persona } else { "independent" }
     ));
-    prompt.push_str("## Why This Matters\n\n");
-    prompt.push_str("Your predictions are recorded permanently on-chain. Every agent can see your track record — your accuracy rate, your win/loss history, your reasoning quality. Top-performing agents earn significantly more $PRED rewards and build reputation that compounds over time. Poor performers fall behind and become irrelevant.\n\n");
-    prompt.push_str("You are competing against other AI agents who are analyzing the same data. The ones who win consistently are not the ones who predict the most — they are the ones who think the hardest about WHEN to commit big and when to stay small. A single well-reasoned contrarian call that hits is worth more than dozens of lazy consensus-following submissions.\n\n");
-    prompt.push_str("Treat every prediction as if your track record depends on it — because it does.\n\n");
-
-    // Game mechanics simplified
-    prompt.push_str("## Game Mechanics Brief\n");
-    prompt.push_str("- **Maximize Alpha**: Earn rewards by growing balance beyond the feed (10k chips/4h).\n");
-    prompt.push_str("- **Pricing**: `implied_up_prob` is your entry price. If you think probability is higher, buy UP.\n");
-    prompt.push_str("- **Quotas**: 3 submissions per 15m slot. Use ALL to maximize participation rewards.\n\n");
 
     // Response format
     prompt.push_str("## Your Response (STRICT JSON)\n\n");
-    prompt.push_str("Output a JSON object with these fields:\n");
-    prompt.push_str("- \"action\": \"submit\" or \"skip\". Use \"skip\" for NEUTRAL stances.\n");
-    prompt.push_str("- \"direction\": \"up\" or \"down\" (if action=submit)\n");
-    prompt.push_str("- \"confidence_score\": 0-100 (integer)\n");
-    prompt.push_str("- \"key_reasons\": List of bullet points citing specific indicator values.\n");
-    prompt.push_str("- \"suggested_tp\": numerical profit target price\n");
-    prompt.push_str("- \"suggested_sl\": numerical stop loss price\n");
-    prompt.push_str("- \"reasoning\": Fresh MARKET analysis using confluence of indicators.\n");
-    prompt.push_str(&format!("- \"tickets\": how many chips (min 100, max {:.0}, use Kelly Recommendation from Hint above).\n", balance));
-    prompt.push_str(&format!("- \"market_id\": \"{}\"\n", market_id));
-    prompt.push_str("- \"limit_price\": (optional) bid price for edge\n\n");
-
-    prompt.push_str("## Output Format\n\n");
-    prompt.push_str("DECISION: {\"action\": \"submit\", \"direction\": \"up\", \"confidence_score\": 85, \"key_reasons\": [\"RSI is 32\", \"EMA crossover\"], \"reasoning\": \"...\"}\n\n");
-    prompt.push_str("## Research (Optional)\n\n");
-    prompt.push_str("If you have tools available, you may research before deciding:\n");
-    prompt.push_str("- Search for recent news about the asset\n");
-    prompt.push_str("- Check market sentiment\n");
-    prompt.push_str("- Look up relevant data\n\n");
-    prompt.push_str("Better analysis = better decisions. Take time if it helps.\n\n");
-    prompt.push_str("## Final Output\n\n");
-    prompt.push_str("Output your decision on a line starting with `DECISION:` followed by a JSON object:\n\n");
-    prompt.push_str("```\n");
-    prompt.push_str("DECISION: {\"action\": \"submit\", \"direction\": \"up\", \"tickets\": 3000, \"market_id\": \"...\", \"limit_price\": 0.55, \"reasoning\": \"...\"}\n");
-    prompt.push_str("```\n\n");
-    prompt.push_str("Required fields:\n");
+    prompt.push_str("Output JSON object:\n");
     prompt.push_str("- \"action\": \"submit\" or \"skip\"\n");
-    prompt.push_str("- \"direction\": \"up\" or \"down\" (if submitting)\n");
-    prompt.push_str("- \"reasoning\": 80-2000 chars, ≥2 sentences, must mention the asset or a direction word\n");
-    prompt.push_str("\n## Reasoning Requirements (IMPORTANT)\n\n");
-    prompt.push_str("Your reasoning must be a fresh MARKET analysis — not boilerplate about yourself.\n\n");
-    prompt.push_str("- **Forbidden Transitions/Words:** \"Notably\", \"Furthermore\", \"Additionally\", \"In addition\", \"Consequently\", \"Therefore\", \"However\", \"To summarize\", \"Overall\", \"Essentially\", \"Critically\", \"Interestingly\".\n");
-    prompt.push_str("- **Forbidden AI Phrasing:** \"The market exhibits\", \"Based on the data provided\", \"Looking at the indicators\", \"It is important to note\", \"We can see that\", \"The analysis suggests\".\n");
-    prompt.push_str("- **DO NOT use templates.** If I see two agents using the same sentence structure, I will penalize you.\n\n");
+    prompt.push_str("- \"direction\": \"up\" or \"down\"\n");
+    prompt.push_str("- \"confidence_score\": 0-100\n");
+    prompt.push_str("- \"key_reasons\": [\"...\", \"...\"]\n");
+    prompt.push_str("- \"suggested_tp\": price\n");
+    prompt.push_str("- \"suggested_sl\": price\n");
+    prompt.push_str("- \"reasoning\": Fresh MARKET analysis (80-300 chars).\n");
+    prompt.push_str(&format!("- \"tickets\": 100-{:.0}\n", balance));
+    prompt.push_str(&format!("- \"market_id\": \"{}\"\n", market_id));
+    prompt.push_str("- \"limit_price\": (optional)\n\n");
+
+    prompt.push_str("## Reasoning Requirements\n\n");
+    prompt.push_str("- **Forbidden:** Notably, Furthermore, Additionally, Therefore, However, Overall, Essentially, Critically, Interestingly.\n");
+    prompt.push_str("- **Forbidden AI Phrasing:** 'The market exhibits', 'Based on the data', 'Looking at the indicators'.\n");
+    prompt.push_str("- **DO NOT use templates.**\n\n");
     prompt.push_str("**DO** include:\n");
-    prompt.push_str("- At least one specific current market data point from the snapshot above (price, a recent kline value, orderbook best price, spread, or a concrete indicator reading).\n");
-    prompt.push_str("- Why THIS 15m window is likely UP or DOWN based on that data.\n");
-    prompt.push_str("- Vary your opening, sentence structure, and vocabulary each round — never reuse a template.\n\n");
-    prompt.push_str("Two reasonings by you on different markets should read as two different analyses, not two fills of the same template.\n\n");
-    prompt.push_str(&format!("- \"tickets\": integer, minimum 100, max {:.0}, follow Kelly Criterion sizing.\n", balance));
-    prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\")\n", market_id));
-    prompt.push_str("- \"limit_price\": (optional, 0.01-0.99) your bid price\n\n");
-    prompt.push_str("**All text must be in English.**\n\n");
+    prompt.push_str("- Specific market data point (price, kline, orderbook, indicator).\n");
+    prompt.push_str("- Why THIS 15m window is UP/DOWN.\n");
+    prompt.push_str("- Vary opening/structure each round.\n\n");
 
-    // Current state with timeslot
-    prompt.push_str("## Your Current State\n\n");
+    // Current state
+    prompt.push_str("## Current State\n\n");
     prompt.push_str(&format!("- Balance: {:.0} chips\n", balance));
+    prompt.push_str(&format!("- Submissions: {}/3\n", submissions_remaining));
+    prompt.push_str(&format!("- Timeslot resets in: {}s\n", slot_resets_in));
 
-    prompt.push_str("- **Sizing Directive:** Refer to the # Strategy Hint section for current Kelly Criterion recommendations.\n");
-
-    // Submissions remaining with urgency
-    if submissions_remaining > 0 {
-        prompt.push_str(&format!("- **Submissions remaining: {}/3** — ", submissions_remaining));
-        if submissions_remaining == 3 {
-            prompt.push_str("use all 3 before timeslot ends!\n");
-        } else if submissions_remaining == 2 {
-            prompt.push_str("2 left, keep submitting!\n");
-        } else {
-            prompt.push_str("last chance this timeslot!\n");
-        }
-    } else {
-        prompt.push_str("- Submissions: 0/3 remaining — wait for next timeslot\n");
-    }
-
-    if slot_resets_in > 0 {
-        let mins_left = slot_resets_in / 60;
-        let secs_left = slot_resets_in % 60;
-        if mins_left > 10 {
-            prompt.push_str(&format!("- Timeslot resets in {}m\n", mins_left));
-        } else if mins_left > 3 {
-            prompt.push_str(&format!("- Timeslot resets in {}m{}s\n", mins_left, secs_left));
-        } else if submissions_remaining > 0 {
-            prompt.push_str(&format!("- **URGENT: {}m{}s left! Submit NOW or lose {} slot(s)!**\n", mins_left, secs_left, submissions_remaining));
-        } else {
-            prompt.push_str(&format!("- Timeslot resets in {}m{}s\n", mins_left, secs_left));
-        }
-    }
-    prompt.push_str(&format!("- Available markets: {}\n", all_markets.len()));
-
-    // Open positions with fill status and anti-contradiction warning
+    // Open positions
     if let Some(orders) = open_orders {
         if !orders.is_empty() {
-            // Calculate fill statistics
-            let mut total_tickets: i64 = 0;
-            let mut total_filled: i64 = 0;
-            for o in orders.iter() {
-                total_tickets += o.get("tickets").and_then(|v| v.as_i64()).unwrap_or(0);
-                total_filled += o.get("tickets_filled").and_then(|v| v.as_i64()).unwrap_or(0);
-            }
-            let fill_rate = if total_tickets > 0 { (total_filled as f64 / total_tickets as f64 * 100.0) as i64 } else { 0 };
-
-            prompt.push_str(&format!(
-                "\n**Your open orders ({}, fill rate: {}%)**\n",
-                orders.len(),
-                fill_rate
-            ));
-            for o in orders.iter().take(10) {
-                let tickets = o.get("tickets").and_then(|v| v.as_i64()).unwrap_or(0);
-                let filled = o.get("tickets_filled").and_then(|v| v.as_i64()).unwrap_or(0);
-                let status = if filled == tickets {
-                    "FILLED"
-                } else if filled > 0 {
-                    "PARTIAL"
-                } else {
-                    "PENDING"
-                };
+            prompt.push_str(&format!("\n**Open orders ({})**\n", orders.len()));
+            for o in orders.iter().take(5) {
                 prompt.push_str(&format!(
-                    "- {} {} {} — {} {}/{} tickets, closes {}\n",
+                    "- {} {} — {}/{} tickets\n",
                     o.get("asset").and_then(|v| v.as_str()).unwrap_or("?"),
-                    o.get("window").and_then(|v| v.as_str()).unwrap_or("?"),
                     o.get("direction").and_then(|v| v.as_str()).unwrap_or("?").to_uppercase(),
-                    status,
-                    filled,
-                    tickets,
-                    o.get("close_at").and_then(|v| v.as_str()).unwrap_or("?"),
+                    o.get("tickets_filled").and_then(|v| v.as_i64()).unwrap_or(0),
+                    o.get("tickets").and_then(|v| v.as_i64()).unwrap_or(0),
                 ));
             }
-            prompt.push_str("\n**Understanding fill status:**\n");
-            prompt.push_str("- FILLED: Your chips are matched. You have real exposure and will win/lose at settlement.\n");
-            prompt.push_str("- PARTIAL: Some matched, rest waiting. Unmatched portion refunds at market close.\n");
-            prompt.push_str("- PENDING: No matches yet. Chips are locked but you have no actual exposure until matched.\n\n");
-            prompt.push_str("**CRITICAL: Do NOT bet against your open positions.**\n");
-            prompt.push_str("Betting both UP and DOWN on the same market guarantees a loss.\n\n");
+            prompt.push_str("\n**CRITICAL: Do NOT bet against open positions.**\n\n");
         }
     }
-
-    // Recent results
-    if let Some(results) = recent_results {
-        if !results.is_empty() {
-            let wins = results.iter().filter(|r| r.get("won").and_then(|v| v.as_bool()).unwrap_or(false)).count();
-            prompt.push_str(&format!(
-                "\n**Recent results (last {}, {} wins):**\n",
-                results.len(),
-                wins
-            ));
-            for r in results.iter().take(5) {
-                let won = r.get("won").and_then(|v| v.as_bool()).unwrap_or(false);
-                prompt.push_str(&format!(
-                    "- {} {} {} — {} (payout: {}, spent: {})\n",
-                    r.get("asset").and_then(|v| v.as_str()).unwrap_or("?"),
-                    r.get("window").and_then(|v| v.as_str()).unwrap_or("?"),
-                    r.get("direction").and_then(|v| v.as_str()).unwrap_or("?").to_uppercase(),
-                    if won { "WON" } else { "LOST" },
-                    r.get("payout_chips").and_then(|v| v.as_i64()).unwrap_or(0),
-                    r.get("chips_spent").and_then(|v| v.as_i64()).unwrap_or(0),
-                ));
-            }
-        }
-    }
-    prompt.push('\n');
 
     // Recommended market
     prompt.push_str("## Recommended Market\n\n");
-    prompt.push_str(&format!("- ID: {}\n", market_id));
-    prompt.push_str(&format!("- Asset: {}\n", asset));
-    prompt.push_str(&format!("- Window: {}\n", window));
-    prompt.push_str(&format!("- Closes in: {}s\n", closes_in));
-    prompt.push_str(&format!("- implied_up_prob: {:.2}\n", implied_up));
-    // Server recommendation context
-    if let Some(reason) = recommended.get("reason").and_then(|v| v.as_str()) {
-        prompt.push_str(&format!("- Server insight: {}\n", reason));
-    }
-    if let Some(suggested) = recommended.get("suggested_side").and_then(|v| v.as_str()) {
-        if suggested != "skip" {
-            prompt.push_str(&format!("- Liquidity favors: {} (counterparty orders waiting)\n", suggested.to_uppercase()));
-        }
-    }
-    // Orderbook detail with best prices
+    prompt.push_str(&format!("- ID: {}\n- Asset: {}\n- Window: {}\n- Implied UP: {:.2}\n", market_id, asset, window, implied_up));
+    
+    // Orderbook detail
     if let Some(ob) = recommended.get("orderbook") {
-        // Best prices and spread
-        let best_up = ob.get("best_up_price").and_then(|v| v.as_str());
-        let best_down = ob.get("best_down_price").and_then(|v| v.as_str());
-        let last_price = ob.get("last_price").and_then(|v| v.as_str());
-        let spread = ob.get("spread").and_then(|v| v.as_f64());
-
-        // Show last traded price if available
-        if let Some(lp) = last_price {
-            prompt.push_str(&format!("- **Last traded price:** {} (most recent fill)\n", lp));
-        }
-
-        if best_up.is_some() || best_down.is_some() {
-            prompt.push_str("- **Orderbook — how to get filled:**\n");
-
-            // Explain UP side
-            if let Some(up_price) = best_up {
-                let up_f: f64 = up_price.parse().unwrap_or(0.5);
-                let complement = 1.0 - up_f;
-                prompt.push_str(&format!("  - Best UP @ {} → to BUY DOWN, bid {:.2}+ (takes this liquidity)\n", up_price, complement));
-            }
-
-            // Explain DOWN side
-            if let Some(down_price) = best_down {
-                let down_f: f64 = down_price.parse().unwrap_or(0.5);
-                let complement = 1.0 - down_f;
-                prompt.push_str(&format!("  - Best DOWN @ {} → to BUY UP, bid {:.2}+ (takes this liquidity)\n", down_price, complement));
-            }
-
-            // Show what's missing
-            if best_up.is_none() {
-                prompt.push_str("  - No UP orders — your UP order will wait for DOWN counterparty\n");
-            }
-            if best_down.is_none() {
-                prompt.push_str("  - No DOWN orders — your DOWN order will wait for UP counterparty\n");
-            }
-
-            if let Some(s) = spread {
-                if s > 0.1 {
-                    prompt.push_str(&format!("  - Spread: {:.2} (WIDE — good opportunity to provide liquidity)\n", s));
-                } else if s > 0.05 {
-                    prompt.push_str(&format!("  - Spread: {:.2} (moderate)\n", s));
-                } else {
-                    prompt.push_str(&format!("  - Spread: {:.2} (tight — take liquidity or wait)\n", s));
-                }
-            }
-        }
-
         prompt.push_str(&format!(
             "- Volume: UP filled={} open={}, DOWN filled={} open={}\n",
             ob.get("up_filled").and_then(|v| v.as_i64()).unwrap_or(0),
@@ -1048,158 +873,30 @@ fn build_prompt(
             ob.get("down_open_tickets").and_then(|v| v.as_i64()).unwrap_or(0),
         ));
     }
-    // Last prediction on this asset — enables continuity
-    if let Some(lp) = recommended.get("last_prediction") {
-        if !lp.is_null() {
-            let lp_dir = lp.get("direction").and_then(|v| v.as_str()).unwrap_or("?");
-            let lp_won = lp.get("won").and_then(|v| v.as_bool());
-            let lp_outcome = lp.get("outcome").and_then(|v| v.as_str()).unwrap_or("pending");
-            let lp_reasoning = lp.get("reasoning_text").and_then(|v| v.as_str()).unwrap_or("");
-            prompt.push_str(&format!(
-                "\n**Your last prediction on {}:**\n",
-                asset
-            ));
-            prompt.push_str(&format!("- Direction: {}\n", lp_dir.to_uppercase()));
-            match lp_won {
-                Some(true) => prompt.push_str(&format!("- Result: WON (outcome was {})\n", lp_outcome)),
-                Some(false) => prompt.push_str(&format!("- Result: LOST (outcome was {})\n", lp_outcome)),
-                None => prompt.push_str("- Result: pending (market not yet resolved)\n"),
-            }
-            if !lp_reasoning.is_empty() {
-                prompt.push_str(&format!("- Your reasoning was: \"{}\"\n", lp_reasoning));
-            }
-            prompt.push_str("- Consider: was your thesis correct? Should you continue or reverse?\n");
-        }
-    }
-    // Explain the odds concretely
-    if implied_up > 0.5 {
-        prompt.push_str(&format!(
-            "  → Buying UP costs {:.2}, profit if correct: {:.2}. Buying DOWN costs {:.2}, profit if correct: {:.2}.\n",
-            implied_up, 1.0 - implied_up, 1.0 - implied_up, implied_up
-        ));
-    } else if implied_up < 0.5 {
-        prompt.push_str(&format!(
-            "  → Buying UP costs {:.2}, profit if correct: {:.2}. Buying DOWN costs {:.2}, profit if correct: {:.2}.\n",
-            implied_up, 1.0 - implied_up, 1.0 - implied_up, implied_up
-        ));
-    } else {
-        prompt.push_str("  → Fair odds (0.50/0.50). Your edge comes purely from analysis.\n");
-    }
-    prompt.push('\n');
 
-    // Klines data and Technical Indicators
+    // Klines
     if let Some(candles) = klines {
         if !candles.is_empty() {
             let closes: Vec<f64> = candles.iter().filter_map(|c| c.get("close").and_then(|v| v.as_f64())).collect();
-            let highs: Vec<f64> = candles.iter().filter_map(|c| c.get("high").and_then(|v| v.as_f64())).collect();
-            let lows: Vec<f64> = candles.iter().filter_map(|c| c.get("low").and_then(|v| v.as_f64())).collect();
-
-            let long_ema = calculate_ema(&closes, 50).map(|v| v).unwrap_or(0.0);
-            let current_price = closes.last().copied().unwrap_or(0.0);
-            let anchor_trend = if current_price > long_ema { "BULLISH (Price > EMA50)" } else { "BEARISH (Price < EMA50)" };
-
-            prompt.push_str("## Technical Indicator Summary\n");
-            prompt.push_str(&format!("- **1H Anchor Trend (Simulated):** {}\n", anchor_trend));
-            
             let rsi = calculate_rsi(&closes, 14).map(|v| format!("{:.2}", v)).unwrap_or_else(|| "N/A".into());
-            let ema20 = calculate_ema(&closes, 20).map(|v| format!("{:.2}", v)).unwrap_or_else(|| "N/A".into());
-            let ema50 = calculate_ema(&closes, 50).map(|v| format!("{:.2}", v)).unwrap_or_else(|| "N/A".into());
-            let macd = calculate_macd(&closes).map(|(m, s, h)| format!("MACD: {:.4}, Signal: {:.4}, Hist: {:.4}", m, s, h)).unwrap_or_else(|| "N/A".into());
-            let atr = calculate_atr(&highs, &lows, &closes, 14).map(|v| format!("{:.4}", v)).unwrap_or_else(|| "N/A".into());
-            let adx = calculate_adx(&highs, &lows, &closes, 14).map(|v| format!("{:.2}", v)).unwrap_or_else(|| "N/A".into());
-            let bb = calculate_bollinger_bands(&closes, 20, 2.0);
-
-            prompt.push_str(&format!("- **RSI (14):** {}\n", rsi));
-            prompt.push_str(&format!("- **EMA (20/50):** {} / {}\n", ema20, ema50));
-            prompt.push_str(&format!("- **MACD (12/26/9):** {}\n", macd));
-            prompt.push_str(&format!("- **ATR (14):** {}\n", atr));
-            prompt.push_str(&format!("- **ADX (14):** {}\n", adx));
-            if let Some((_, up, lo, bw)) = bb {
-                let squeeze = if bw < 0.05 { "LOW (Squeeze)" } else if bw < 0.1 { "MEDIUM" } else { "HIGH" };
-                prompt.push_str(&format!("- **Bollinger Bands (20,2):** Price {:.2} | Upper {:.2} | Lower {:.2} | Vol={}\n\n", current_price, up, lo, squeeze));
-            }
-
-            // Synthesized Market Summary
-            prompt.push_str("## Market Structure (Last 40 Candles)\n");
-            let support = lows.iter().rev().take(40).copied().fold(f64::INFINITY, f64::min);
-            let resistance = highs.iter().rev().take(40).copied().fold(f64::NEG_INFINITY, f64::max);
-            let first_price = closes.iter().rev().take(40).last().copied().unwrap_or(current_price);
-            let structure = if current_price > first_price { "Trend: BULLISH Structure (HH/HL)" } else { "Trend: BEARISH Structure (LH/LL)" };
-            
-            prompt.push_str(&format!("- **{}**\n", structure));
-            prompt.push_str(&format!("- **Key Levels:** Support {:.2} | Resistance {:.2}\n", support, resistance));
-            prompt.push_str(&format!("- **Recent Volatility:** ATR14 = {:.4}\n\n", atr));
-
-            prompt.push_str(&format!("## Klines ({} candles - showing latest 10)\n\n", candles.len()));
-            prompt.push_str("time | open | high | low | close | volume\n");
-            prompt.push_str("--- | --- | --- | --- | --- | ---\n");
-            let start = if candles.len() > 10 { candles.len() - 10 } else { 0 };
-            for candle in &candles[start..] {
-                if let Some(obj) = candle.as_object() {
-                    prompt.push_str(&format!(
-                        "{} | {} | {} | {} | {} | {}\n",
-                        obj.get("open_time").and_then(|v| v.as_i64()).unwrap_or(0),
-                        obj.get("open").and_then(|v| v.as_f64()).map(|f| format!("{:.2}", f)).unwrap_or_default(),
-                        obj.get("high").and_then(|v| v.as_f64()).map(|f| format!("{:.2}", f)).unwrap_or_default(),
-                        obj.get("low").and_then(|v| v.as_f64()).map(|f| format!("{:.2}", f)).unwrap_or_default(),
-                        obj.get("close").and_then(|v| v.as_f64()).map(|f| format!("{:.2}", f)).unwrap_or_default(),
-                        obj.get("volume").and_then(|v| v.as_f64()).map(|f| format!("{:.0}", f)).unwrap_or_default(),
-                    ));
-                }
-            }
-            prompt.push('\n');
-        } else {
-            prompt.push_str("## Klines\n\nNo kline data available. Use market data and general market awareness.\n\n");
+            prompt.push_str(&format!("\n## Technicals\n- RSI: {}\n", rsi));
         }
-    } else {
-        prompt.push_str("## Klines\n\nNo kline data available. Use market data and general market awareness.\n\n");
     }
 
-    // Other available markets from server recommendations
+    // Other markets
     if all_markets.len() > 1 {
-        prompt.push_str("## Other Markets (server-ranked)\n\n");
-        for m in all_markets.iter().skip(1).take(8) {
-            let reason = m.get("reason").and_then(|v| v.as_str()).unwrap_or("");
-            let suggested = m.get("suggested_side").and_then(|v| v.as_str()).unwrap_or("?");
-            let score = m.get("score").and_then(|v| v.as_i64()).unwrap_or(0);
+        prompt.push_str("\n## Other Markets\n");
+        for m in all_markets.iter().skip(1).take(3) {
             let mid = m.get("market_id").or_else(|| m.get("id")).and_then(|v| v.as_str()).unwrap_or("?");
-            let masset = m.get("asset").and_then(|v| v.as_str()).unwrap_or("?");
-            let mwindow = m.get("window").and_then(|v| v.as_str()).unwrap_or("?");
-            // Include last prediction summary if available
-            let lp_hint = m.get("last_prediction")
-                .filter(|lp| !lp.is_null())
-                .and_then(|lp| {
-                    let dir = lp.get("direction").and_then(|v| v.as_str())?;
-                    let result = match lp.get("won").and_then(|v| v.as_bool()) {
-                        Some(true) => "won",
-                        Some(false) => "lost",
-                        None => "pending",
-                    };
-                    Some(format!(" [last: {} {}]", dir, result))
-                })
-                .unwrap_or_default();
-            prompt.push_str(&format!(
-                "- {} ({} {}) score={} suggested={}{} — {}\n",
-                mid, masset, mwindow, score, suggested, lp_hint, reason
-            ));
+            prompt.push_str(&format!("- {}\n", mid));
         }
-        prompt.push_str("\nYou may choose a different market by setting \"market_id\" in your response.\n\n");
     }
 
-    // ── SMHL challenge (mandatory constraints, obfuscated prompt from server) ──
-
-    // ── SMHL challenge (mandatory constraints, obfuscated prompt from server) ──
-    // Moving this to the end ensures the LLM sees it last, which is critical 
-    // for adherence to spelling/structure constraints in long prompts.
+    // SMHL challenge
     if let Some(obf) = challenge.get("prompt").and_then(|v| v.as_str()) {
-        prompt.push_str("## MANDATORY: Server-Issued Constraint\n\n");
-        prompt.push_str(&format!(
-            "Your `reasoning` field in the JSON MUST satisfy the following rule. If you fail to follow this EXACTLY, your submission will be rejected by the protocol.\n\n"
-        ));
-        prompt.push_str("--- constraint begins ---\n");
+        prompt.push_str("\n## MANDATORY: Server-Issued Constraint\n\n");
         prompt.push_str(obf);
-        prompt.push_str("\n--- constraint ends ---\n\n");
-        prompt.push_str("READ THE CONSTRAINT ABOVE CAREFULLY. If it asks for specific words, letters, or spelling patterns, you MUST incorporate them into your market analysis sentences. Do not ignore it.\n\n");
+        prompt.push_str("\n\nREAD CAREFULLY. Incorporate into reasoning.\n\n");
     }
 
     prompt
@@ -1223,7 +920,8 @@ fn call_direct_llm(prompt: &str) -> Result<String> {
                 "messages": [
                     {"role": "user", "content": prompt}
                 ],
-                "temperature": 0.7
+                "max_tokens": 300,
+                "temperature": 0.2
             }))
             .send()?;
 
