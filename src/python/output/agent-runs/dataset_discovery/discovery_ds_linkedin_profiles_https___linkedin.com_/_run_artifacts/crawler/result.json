@@ -1,0 +1,20 @@
+{
+  "exit_code": 1,
+  "argv": [
+    "/home/losbanditos/_code/awp-agents-project/.venv/bin/python",
+    "-m",
+    "crawler",
+    "discover-crawl",
+    "--input",
+    "/home/losbanditos/_code/awp-agents-project/src/python/output/agent-runs/dataset_discovery/discovery_ds_linkedin_profiles_https___linkedin.com_/task-input.jsonl",
+    "--output",
+    "/home/losbanditos/_code/awp-agents-project/src/python/output/agent-runs/dataset_discovery/discovery_ds_linkedin_profiles_https___linkedin.com_",
+    "--auto-login",
+    "--max-depth",
+    "1",
+    "--max-pages",
+    "25"
+  ],
+  "records_count": 0,
+  "errors_count": 0
+}

@@ -1,0 +1,17 @@
+{
+  "exit_code": 1,
+  "argv": [
+    "/home/losbanditos/_code/awp-agents-project/.venv/bin/python",
+    "-m",
+    "crawler",
+    "run",
+    "--input",
+    "/home/losbanditos/_code/awp-agents-project/src/python/output/agent-runs/dataset_discovery/discovery_ds_wikipedia_https___en.wikipedia.org_wiki_You_Don_t_Have_to_Be_a_Baby_to_Cry/task-input.jsonl",
+    "--output",
+    "/home/losbanditos/_code/awp-agents-project/src/python/output/agent-runs/dataset_discovery/discovery_ds_wikipedia_https___en.wikipedia.org_wiki_You_Don_t_Have_to_Be_a_Baby_to_Cry",
+    "--auto-login",
+    "--use-openclaw"
+  ],
+  "records_count": 0,
+  "errors_count": 0
+}

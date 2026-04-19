@@ -1,0 +1,37 @@
+{
+  "iteration": 1536,
+  "heartbeat_sent": true,
+  "unified_heartbeat_sent": true,
+  "claimed_items": 0,
+  "discovery_items": 3,
+  "resumed_items": 0,
+  "processed_items": 0,
+  "submitted_items": 0,
+  "discovered_followups": 0,
+  "skipped_items": 3,
+  "retry_pending": 3,
+  "auth_pending": [],
+  "messages": [
+    "skipped discovery:ds_arxiv:https://arxiv.org/abs/2604.14670: preflight blocked (occupancy_blocked) for https://arxiv.org/abs/2604.14670",
+    "skipped discovery:ds_arxiv:https://arxiv.org/abs/2604.14671: preflight blocked (occupancy_blocked) for https://arxiv.org/abs/2604.14671",
+    "skipped discovery:ds_arxiv:https://arxiv.org/abs/2604.14669: preflight blocked (occupancy_blocked) for https://arxiv.org/abs/2604.14669"
+  ],
+  "errors": [],
+  "current_batch": {
+    "state": "settled",
+    "iteration": 1536,
+    "size": 3,
+    "item_ids": [
+      "discovery:ds_arxiv:https://arxiv.org/abs/2604.14670",
+      "discovery:ds_arxiv:https://arxiv.org/abs/2604.14669",
+      "discovery:ds_arxiv:https://arxiv.org/abs/2604.14671"
+    ],
+    "dataset_ids": [
+      "ds_arxiv"
+    ],
+    "processed_items": 0,
+    "submitted_items": 0,
+    "error_count": 0,
+    "message_count": 3
+  }
+}
