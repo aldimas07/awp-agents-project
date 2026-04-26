@@ -65,7 +65,7 @@ for i in $(seq -w 1 50); do
     INTERVAL=$(shuf -i 110-125 -n 1)
     echo "  Starting $AGENT_ID with interval ${INTERVAL}s..."
     "$HIVE_AGENT_MANAGER" start "$AGENT_ID" "$INTERVAL"
-    sleep 0.5
+    sleep 5
 done
 
 sleep 2

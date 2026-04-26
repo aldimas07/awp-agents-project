@@ -154,6 +154,7 @@ function stop_agent() {
     echo "  Stopping predictor for $name..."
     pkill -9 -f "agent_wrapper.sh $name" 2>/dev/null && echo "    Wrapper for $name killed."
     pkill -9 -f "predict-agent .* --agent-id $name" 2>/dev/null && echo "    Predictor for $name killed."
+    pkill -9 -f "openclaw agent --agent $name" 2>/dev/null && echo "    OpenClaw for $name killed."
     if [ -f "$PIDS_DIR/$name-predict.pid" ]; then
         kill $(cat "$PIDS_DIR/$name-predict.pid") 2>/dev/null
         rm -f "$PIDS_DIR/$name-predict.pid"
