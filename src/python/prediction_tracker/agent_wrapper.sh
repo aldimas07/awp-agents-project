@@ -6,20 +6,32 @@
 AGENT_ID=$1
 INTERVAL=$2
 
-# Derive project root dynamically
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../../../.. && pwd)"
+# Derive project root dynamically using git for robustness
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)"
 
-# Load local .env if exists
-if [ -f "$PROJECT_ROOT/.env" ]; then
+# 1. Load global config/.env (API keys, model, platform URL)
+if [ -f "$PROJECT_ROOT/config/.env" ]; then
   set -a
-  source "$PROJECT_ROOT/.env"
+  source "$PROJECT_ROOT/config/.env"
   set +a
 fi
+
+# 2. Load agent-specific .env (wallet keys, overrides)
+AGENT_ENV="$PROJECT_ROOT/agents/$AGENT_ID/.env"
+if [ -f "$AGENT_ENV" ]; then
+  set -a
+  source "$AGENT_ENV"
+  set +a
+fi
+
+# 3. Export HOME for wallet operations
+export HOME="$PROJECT_ROOT/agents/$AGENT_ID/home"
 
 # Activate virtual environment
 if [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
   source "$PROJECT_ROOT/.venv/bin/activate"
 fi
+printenv | grep OPENAI
 
 # Loop forever
 while true; do

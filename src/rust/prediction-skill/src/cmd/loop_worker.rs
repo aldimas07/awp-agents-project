@@ -2,14 +2,11 @@
 ///
 /// Runs continuously: fetch context → call LLM for analysis → submit prediction → sleep.
 ///
-/// LLM is invoked via OpenClaw CLI with extended thinking:
-///   `openclaw agent --agent <id> --message <prompt> --thinking high --timeout 180`
-///
-/// With --thinking high, the agent can:
-///   - Do deeper reasoning before making predictions
-///   - Use web search to check news, sentiment, market data (if configured)
-///   - Use any tools available in the agent's gateway configuration
-///   - Output a final `DECISION: {...}` with its prediction
+/// LLM backend selection (checked in order):
+///   1. **Direct API** (preferred) — if `OPENAI_API_KEY` and `OPENAI_BASE_URL` are set,
+///      calls the OpenAI-compatible chat completions endpoint directly via HTTP.
+///      Uses `PREDICT_MODEL` (default: `google/gemma-4-31b-it`) for the model name.
+///   2. **OpenClaw CLI** (fallback) — shells out to the `openclaw` binary.
 ///
 /// Usage: predict-agent loop [--interval 120] [--max-iterations 0] [--agent-id predict-worker]
 ///
@@ -32,6 +29,21 @@ use std::time::Instant;
 use crate::auth::refresh_wallet_token;
 use crate::client::ApiClient;
 use crate::{log_debug, log_error, log_info, log_warn};
+
+/// Which LLM backend to use for generating predictions.
+#[derive(Clone, Debug)]
+enum LlmBackend {
+    /// Direct HTTP call to an OpenAI-compatible API.
+    DirectApi {
+        base_url: String,
+        api_key: String,
+        model: String,
+    },
+    /// Shell out to the openclaw CLI binary.
+    OpenClaw {
+        bin_path: String,
+    },
+}
 
 pub struct LoopArgs {
     pub interval: u64,
@@ -70,21 +82,8 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
     })
     .ok(); // Ignore error if handler already set
 
-    // Detect OpenClaw CLI
-    let openclaw_bin = detect_openclaw();
-    if openclaw_bin.is_none() {
-        log_error!("loop: openclaw CLI not found. Install OpenClaw or add it to PATH.");
-        log_error!("loop: the prediction loop requires an LLM to analyze markets and generate reasoning.");
-        eprintln!("\npredict-agent loop requires the OpenClaw CLI (openclaw) to be installed.");
-        eprintln!("The loop calls an LLM each round to analyze klines and write original reasoning.");
-        eprintln!("\nInstall: https://docs.openclaw.com/install");
-        return Ok(());
-    }
-    let openclaw_bin = openclaw_bin.unwrap();
-    log_info!("loop: using openclaw at {}", openclaw_bin);
-
-    // Ensure agent exists
-    ensure_agent(&openclaw_bin, &args.agent_id);
+    // Detect LLM backend: prefer direct API, fall back to openclaw
+    let backend = resolve_llm_backend(&args.agent_id);
 
     let mut iteration: u64 = 0;
     let mut consecutive_empty = 0u32;
@@ -100,7 +99,7 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
         log_info!("loop: === iteration {} ===", iteration);
         let iter_start = Instant::now();
 
-        match run_iteration(server_url, &openclaw_bin, &args.agent_id) {
+        match run_iteration(server_url, &backend, &args.agent_id) {
             IterationResult::Submitted { market, direction, tickets, tickets_filled, order_status } => {
                 let elapsed = iter_start.elapsed().as_secs_f64();
                 let fill_info = match order_status.as_str() {
@@ -209,7 +208,7 @@ enum IterationResult {
     },
 }
 
-fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> IterationResult {
+fn run_iteration(server_url: &str, backend: &LlmBackend, agent_id: &str) -> IterationResult {
     // 1. Create API client
     let client = match ApiClient::new(server_url.to_string()) {
         Ok(c) => c,
@@ -431,10 +430,9 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> Iterat
         &challenge,
     );
 
-    // 8. Call LLM via OpenClaw
-    log_info!("loop: calling LLM via openclaw agent {}...", agent_id);
+    // 8. Call LLM
     let llm_start = Instant::now();
-    let llm_response = call_openclaw(openclaw_bin, agent_id, &prompt);
+    let llm_response = call_llm(backend, agent_id, &prompt);
     let llm_elapsed = llm_start.elapsed();
 
     let llm_text = match llm_response {
@@ -1022,6 +1020,144 @@ fn build_prompt(
     }
 
     prompt
+}
+
+/// Resolve which LLM backend to use.
+///
+/// Priority:
+/// 1. If `OPENAI_API_KEY` and `OPENAI_BASE_URL` are set → DirectApi
+/// 2. If `openclaw` binary is found → OpenClaw
+/// 3. Panic with a helpful message
+fn resolve_llm_backend(agent_id: &str) -> LlmBackend {
+    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
+    let base_url = std::env::var("OPENAI_BASE_URL").unwrap_or_default();
+    let model = std::env::var("PREDICT_MODEL")
+        .or_else(|_| std::env::var("OPENAI_MODEL"))
+        .unwrap_or_else(|_| "google/gemma-4-31b-it".to_string());
+
+    if !api_key.is_empty() && !base_url.is_empty() {
+        log_info!(
+            "loop: using direct LLM API (model={}, base_url={})",
+            model,
+            base_url
+        );
+        return LlmBackend::DirectApi {
+            base_url,
+            api_key,
+            model,
+        };
+    }
+
+    // Fallback to openclaw
+    if let Some(bin) = detect_openclaw() {
+        log_info!("loop: using openclaw at {}", bin);
+        ensure_agent(&bin, agent_id);
+        return LlmBackend::OpenClaw { bin_path: bin };
+    }
+
+    log_error!("loop: no LLM backend available!");
+    log_error!("loop: set OPENAI_API_KEY + OPENAI_BASE_URL, or install openclaw.");
+    eprintln!("\npredict-agent loop requires an LLM backend.");
+    eprintln!("Option 1: set OPENAI_API_KEY and OPENAI_BASE_URL env vars for direct API.");
+    eprintln!("Option 2: install openclaw CLI.");
+    std::process::exit(1);
+}
+
+/// Dispatch LLM call to the appropriate backend.
+fn call_llm(backend: &LlmBackend, agent_id: &str, prompt: &str) -> Result<String> {
+    match backend {
+        LlmBackend::DirectApi {
+            base_url,
+            api_key,
+            model,
+        } => {
+            log_info!("loop: calling direct LLM {} @ {}...", model, base_url);
+            call_llm_direct(base_url, api_key, model, prompt)
+        }
+        LlmBackend::OpenClaw { bin_path } => {
+            log_info!("loop: calling LLM via openclaw agent {}...", agent_id);
+            call_openclaw(bin_path, agent_id, prompt)
+        }
+    }
+}
+
+/// Call an OpenAI-compatible chat completions API directly via HTTP.
+///
+/// This is the lightweight alternative to openclaw — no Node.js process,
+/// no extra RAM, just a single HTTP POST.
+fn call_llm_direct(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    prompt: &str,
+) -> Result<String> {
+    let url = format!(
+        "{}/chat/completions",
+        base_url.trim_end_matches('/')
+    );
+
+    let body = json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a crypto market analyst. Analyze the data and respond with a DECISION JSON block."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 2048
+    });
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(180))
+        .build()
+        .context("failed to build HTTP client")?;
+
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .context("LLM API request failed")?;
+
+    let status = response.status();
+    let response_text = response
+        .text()
+        .context("failed to read LLM API response body")?;
+
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        anyhow::bail!("LLM rate limited (429): {}", truncate_str(&response_text, 200));
+    }
+
+    if !status.is_success() {
+        anyhow::bail!(
+            "LLM API returned HTTP {}: {}",
+            status.as_u16(),
+            truncate_str(&response_text, 300)
+        );
+    }
+
+    let resp_json: Value = serde_json::from_str(&response_text)
+        .context("failed to parse LLM API JSON response")?;
+
+    let content = resp_json
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("");
+
+    if content.trim().is_empty() {
+        anyhow::bail!("LLM API returned empty content");
+    }
+
+    Ok(content.to_string())
 }
 
 fn call_openclaw(openclaw_bin: &str, agent_id: &str, prompt: &str) -> Result<String> {
