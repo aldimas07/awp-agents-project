@@ -69,8 +69,12 @@ class AutoUpdater:
 
     def stop(self) -> None:
         self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout=5)
+        t = self._thread
+        # Don't join if called from the auto-updater thread itself (e.g.
+        # on_update_applied → stop() → _stop_auto_updater → here).
+        # Thread.join() on the current thread raises RuntimeError.
+        if t is not None and t is not threading.current_thread():
+            t.join(timeout=5)
 
     # ── Internal ──
 
@@ -149,16 +153,29 @@ class AutoUpdater:
             log.warning("Fetch failed: %s", err)
             return
 
-        # Fast-forward merge only — refuses to proceed if local has divergent commits
-        rc, _, err = self._git(
-            "merge", "--ff-only", "FETCH_HEAD", timeout=30,
-        )
+        # Try fast-forward first; fall back to reset for release-repo consumers
+        # where the upstream has merge commits (sync workflow creates PRs with
+        # merge commits, making ff-only impossible from the dev repo history).
+        rc, _, err = self._git("merge", "--ff-only", "FETCH_HEAD", timeout=30)
         if rc != 0:
-            log.warning(
-                "Fast-forward merge failed (local may have divergent commits): %s",
-                err,
+            # Check if local has unpushed commits that should be preserved
+            rc2, local_only, _ = self._git(
+                "rev-list", "FETCH_HEAD..HEAD", "--count",
             )
-            return
+            local_count = int(local_only.strip()) if rc2 == 0 and local_only.strip().isdigit() else 0
+            if local_count > 0:
+                log.warning(
+                    "Cannot auto-update: %d local commit(s) not in upstream. "
+                    "Push or discard them first.",
+                    local_count,
+                )
+                return
+            # No local-only commits — safe to reset to upstream
+            log.info("Fast-forward not possible (upstream has merge commits); resetting to FETCH_HEAD")
+            rc, _, err = self._git("reset", "--hard", "FETCH_HEAD", timeout=30)
+            if rc != 0:
+                log.warning("Reset to FETCH_HEAD failed: %s", err)
+                return
 
         new_head = self._get_local_head()
         log.info(

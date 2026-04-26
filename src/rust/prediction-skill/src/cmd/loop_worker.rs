@@ -24,7 +24,6 @@
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::io::Write;
-use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -73,38 +72,23 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
 
     // Detect OpenClaw CLI
     let openclaw_bin = detect_openclaw();
-    
-    // Fallback: If we have direct OpenAI credentials, we don't strictly require the openclaw binary
-    let has_direct_llm = std::env::var("OPENAI_API_KEY").is_ok() && std::env::var("OPENAI_BASE_URL").is_ok();
-    
-    if openclaw_bin.is_none() && !has_direct_llm {
+    if openclaw_bin.is_none() {
         log_error!("loop: openclaw CLI not found. Install OpenClaw or add it to PATH.");
         log_error!("loop: the prediction loop requires an LLM to analyze markets and generate reasoning.");
-        eprintln!("\npredict-agent loop requires the OpenClaw CLI (openclaw) to be installed OR direct LLM credentials.");
+        eprintln!("\npredict-agent loop requires the OpenClaw CLI (openclaw) to be installed.");
         eprintln!("The loop calls an LLM each round to analyze klines and write original reasoning.");
         eprintln!("\nInstall: https://docs.openclaw.com/install");
         return Ok(());
     }
-    
-    // Priority: If we have direct LLM, we ignore OpenClaw entirely to avoid unwanted folder creation (bypass mode)
-    let openclaw_bin_path = if has_direct_llm {
-        "none".to_string()
-    } else {
-        openclaw_bin.unwrap_or_else(|| "none".to_string())
-    };
+    let openclaw_bin = openclaw_bin.unwrap();
+    log_info!("loop: using openclaw at {}", openclaw_bin);
 
-    if openclaw_bin_path != "none" {
-        log_info!("loop: using openclaw at {}", openclaw_bin_path);
-        // Ensure agent exists
-        ensure_agent(&openclaw_bin_path, &args.agent_id);
-    } else {
-        log_info!("loop: direct LLM mode active (OpenClaw bypassed).");
-    }
+    // Ensure agent exists
+    ensure_agent(&openclaw_bin, &args.agent_id);
 
     let mut iteration: u64 = 0;
     let mut consecutive_empty = 0u32;
     let mut consecutive_errors = 0u32;
-    let mut last_error_context: Option<String> = None;
 
     while running.load(Ordering::SeqCst) {
         iteration += 1;
@@ -116,7 +100,7 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
         log_info!("loop: === iteration {} ===", iteration);
         let iter_start = Instant::now();
 
-        match run_iteration(server_url, &openclaw_bin_path, &args.agent_id, last_error_context.clone()) {
+        match run_iteration(server_url, &openclaw_bin, &args.agent_id) {
             IterationResult::Submitted { market, direction, tickets, tickets_filled, order_status } => {
                 let elapsed = iter_start.elapsed().as_secs_f64();
                 let fill_info = match order_status.as_str() {
@@ -136,7 +120,6 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
                 );
                 consecutive_empty = 0;
                 consecutive_errors = 0;
-                last_error_context = None; // Reset on success
             }
             IterationResult::Skipped { reason } => {
                 let elapsed = iter_start.elapsed().as_secs_f64();
@@ -174,12 +157,6 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
                     consecutive_errors
                 );
                 notify!(args.notify, "Round {}: LLM error — {}, retrying in {}s", iteration, reason, backoff);
-                
-                // If it was a reasoning rejection, save it for next time
-                if reason.contains("REASONING_REJECTED") {
-                    last_error_context = Some(reason);
-                }
-                
                 interruptible_sleep(backoff, &running);
                 continue;
             }
@@ -193,12 +170,6 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
                     consecutive_errors
                 );
                 notify!(args.notify, "Round {}: Error — {}, retrying in {}s", iteration, reason, backoff);
-                
-                // Save reasoning rejection errors to context
-                if reason.contains("REASONING_REJECTED") {
-                    last_error_context = Some(reason);
-                }
-                
                 interruptible_sleep(backoff, &running);
                 continue;
             }
@@ -238,7 +209,7 @@ enum IterationResult {
     },
 }
 
-fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str, last_error: Option<String>) -> IterationResult {
+fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str) -> IterationResult {
     // 1. Create API client
     let client = match ApiClient::new(server_url.to_string()) {
         Ok(c) => c,
@@ -379,7 +350,7 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str, last_erro
             .unwrap_or_default();
 
         if markets.is_empty() {
-            return IterationResult::NoMarkets { wait_seconds: 60 };
+            return IterationResult::NoMarkets { wait_seconds: 300 };
         }
 
         let now = chrono::Utc::now();
@@ -394,12 +365,12 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str, last_erro
                 let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 (id, m.clone())
             }
-            None => return IterationResult::NoMarkets { wait_seconds: 60 },
+            None => return IterationResult::NoMarkets { wait_seconds: 300 },
         }
     };
 
     if market_id.is_empty() {
-        return IterationResult::NoMarkets { wait_seconds: 60 };
+        return IterationResult::NoMarkets { wait_seconds: 300 };
     }
 
     // 5. Fetch klines for the chosen market
@@ -458,18 +429,12 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str, last_erro
         &open_orders,
         &recent_results,
         &challenge,
-        agent_id,
-        last_error,
     );
 
-    // 8. Call LLM
+    // 8. Call LLM via OpenClaw
+    log_info!("loop: calling LLM via openclaw agent {}...", agent_id);
     let llm_start = Instant::now();
-    let llm_response = if std::env::var("OPENAI_API_KEY").is_ok() && std::env::var("OPENAI_BASE_URL").is_ok() {
-        call_direct_llm(&prompt)
-    } else {
-        log_info!("loop: calling LLM via openclaw agent {}...", agent_id);
-        call_openclaw(openclaw_bin, agent_id, &prompt)
-    };
+    let llm_response = call_openclaw(openclaw_bin, agent_id, &prompt);
     let llm_elapsed = llm_start.elapsed();
 
     let llm_text = match llm_response {
@@ -489,7 +454,7 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str, last_erro
     let decision = match parse_llm_response(&llm_text) {
         Ok(parsed) => parsed,
         Err(e) => {
-            log_warn!("loop: failed to parse LLM response: {}. Raw response ({} chars): \"{}\"", e, llm_text.len(), llm_text);
+            log_warn!("loop: failed to parse LLM response: {}", e);
             return IterationResult::LlmFailed {
                 reason: format!("parse failed: {e}"),
             };
@@ -529,179 +494,79 @@ fn run_iteration(server_url: &str, openclaw_bin: &str, agent_id: &str, last_erro
     // Enforce minimum
     let final_tickets = final_tickets.max(MIN_TICKETS);
 
-    // 10. Submit with retry on CHALLENGE_SPELL_FAIL
-    // The server issues a "spell challenge" — reasoning must contain 3+ consecutive
-    // words whose first letters spell a given acrostic. If we fail, we parse the
-    // required letters from the error and retry the LLM with an explicit directive.
-    let mut current_reasoning = reasoning;
-    let mut current_direction = direction;
-    let mut current_tickets = final_tickets;
-    let mut current_limit_price = limit_price;
-    let mut spell_retry_count = 0u32;
+    log_info!(
+        "loop: submitting {} {} tickets for {} @ {:?}",
+        direction,
+        final_tickets,
+        final_market,
+        limit_price
+    );
 
-    loop {
-        let reasoning_hash = {
-            use sha2::{Digest, Sha256};
-            hex::encode(Sha256::digest(current_reasoning.as_bytes()))
-        };
-        let limit_price_str = current_limit_price
-            .map(|p| format!("{}", p))
-            .unwrap_or_else(|| "none".to_string());
-        let canonical_body = format!(
-            "{}|{}|{}|{}|{}|{}",
-            final_market, current_direction, limit_price_str, current_tickets, reasoning_hash, challenge_nonce
-        );
+    // 10. Submit prediction
+    // Build canonical body for signature (matches server's format)
+    // Format: market_id|prediction|limit_price_or_none|tickets|sha256(reasoning)
+    let reasoning_hash = {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(reasoning.as_bytes()))
+    };
+    let limit_price_str = limit_price
+        .map(|p| format!("{}", p))
+        .unwrap_or_else(|| "none".to_string());
+    let canonical_body = format!(
+        "{}|{}|{}|{}|{}|{}",
+        final_market, direction, limit_price_str, final_tickets, reasoning_hash, challenge_nonce
+    );
+    log_debug!("loop: canonical body = {}", canonical_body);
 
-        log_info!("loop: submitting prediction for {} with {} tickets and reasoning ({} chars)", final_market, current_tickets, current_reasoning.len());
-        log_info!("loop: reasoning used: \"{}\"", current_reasoning);
-
-        let mut body = json!({
-            "market_id": final_market,
-            "prediction": current_direction,
-            "tickets": current_tickets,
-            "reasoning": current_reasoning,
-            "challenge_nonce": challenge_nonce,
-        });
-        if let Some(lp) = current_limit_price {
-            body["limit_price"] = json!(lp);
-        }
-
-        match client.post_auth_with_canonical(canonical_body.as_bytes(), "/api/v1/predictions", &body) {
-            Ok(resp) => {
-                let data = resp.get("data").cloned().unwrap_or(json!({}));
-                let order_status = data
-                    .get("order_status")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("open")
-                    .to_string();
-                let tickets_filled = data
-                    .get("tickets_filled")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
-                log_info!(
-                    "loop: submission result — status={}, filled={}/{}",
-                    order_status, tickets_filled, current_tickets
-                );
-                return IterationResult::Submitted {
-                    market: final_market,
-                    direction: current_direction,
-                    tickets: current_tickets,
-                    tickets_filled,
-                    order_status,
-                };
-            }
-            Err(e) => {
-                let err_str = e.to_string();
-
-                if err_str.contains("RATE_LIMIT") || err_str.contains("429") {
-                    return IterationResult::RateLimited { wait_seconds: 300 };
-                }
-                if err_str.contains("INSUFFICIENT_BALANCE") {
-                    log_warn!("loop: insufficient balance, waiting for chip feed");
-                    return IterationResult::NoMarkets { wait_seconds: 600 };
-                }
-
-                // Handle Spell Challenge failure — retry with explicit acrostic instruction
-                if err_str.contains("CHALLENGE_SPELL_FAIL") && spell_retry_count < 3 {
-                    spell_retry_count += 1;
-
-                    // Extract the required acrostic letters (e.g. 'EPL') from the server error
-                    let acrostic = err_str
-                        .split("spell '")
-                        .nth(1)
-                        .and_then(|s| s.split('\'').next())
-                        .unwrap_or("???")
-                        .to_string();
-
-                    log_warn!(
-                        "loop: CHALLENGE_SPELL_FAIL (attempt {}): acrostic='{}', retrying LLM...",
-                        spell_retry_count, acrostic
-                    );
-
-                    // Build a focused override prompt with crystal-clear spelling directive
-                    let letters: Vec<char> = acrostic.chars().collect();
-                    let example = letters
-                        .iter()
-                        .map(|c| format!("**{}**ord", c))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    let spell_prompt = format!(
-                        "URGENT FIX REQUIRED: Your previous reasoning was REJECTED by the server.\n\n\
-                        CRITICAL CONSTRAINTS:\n\
-                        1. You MUST solve the acrostic: Your `reasoning` must contain {} consecutive words \
-                        whose FIRST LETTERS spell the acrostic '{}' IN ORDER.\n\
-                        2. You MUST maintain your Persona: Chaotic, informal retail crypto trader. Use slang (bags, moon, rekt), be slightly aggressive/hyper, and don't sound like a bot.\n\
-                        3. FORBIDDEN WORDS: Notable, Furthermore, Overall, Essentially, Therefore, Interestingly, Indicators, RSI shows, MACD indicates.\n\
-                        4. NO AI FILLER: Do not use 'As of the latest', 'Based on the indicators', or 'In conclusion'. Just spit pure trader logic with the acrostic built-in.\n\n\
-                        EXAMPLE of valid acrostic for '{}': '{}'\n\n\
-                        Rewrite market analysis for {} (Direction: {}) targeting {} tickets.\n\
-                        Output ONLY valid JSON: DECISION: {{\"action\": \"submit\", \"direction\": \"{}\", \"tickets\": {}, \
-                        \"market_id\": \"{}\", \"reasoning\": \"...your degen reasoning with the acrostic here...\"}}",
-                        letters.len(),
-                        acrostic,
-                        acrostic,
-                        example,
-                        final_market,
-                        current_direction,
-                        current_tickets,
-                        current_direction,
-                        current_tickets,
-                        final_market,
-                    );
-
-                    // Re-call LLM with the focused spell prompt
-                    let retry_response = if std::env::var("OPENAI_API_KEY").is_ok() && std::env::var("OPENAI_BASE_URL").is_ok() {
-                        call_direct_llm(&spell_prompt)
-                    } else {
-                        call_openclaw(openclaw_bin, agent_id, &spell_prompt)
-                    };
-
-                    match retry_response {
-                        Ok(text) => {
-                            match parse_llm_response(&text) {
-                                Ok(LlmDecision::Submit { reasoning: new_r, direction: new_d, tickets: new_t, limit_price: new_lp, .. }) => {
-                                    log_info!("loop: spell retry {} produced reasoning ({} chars)", spell_retry_count, new_r.len());
-                                    current_reasoning = new_r;
-                                    current_direction = new_d;
-                                    current_tickets = new_t.unwrap_or(current_tickets);
-                                    current_limit_price = new_lp;
-                                    // Continue loop to re-submit
-                                }
-                                _ => {
-                                    log_warn!("loop: spell retry {} parse failed, aborting", spell_retry_count);
-                                    return IterationResult::Error {
-                                        reason: format!("submit failed (spell retry parse): {}", extract_short_error(&err_str)),
-                                    };
-                                }
-                            }
-                        }
-                        Err(llm_err) => {
-                            log_warn!("loop: spell retry {} LLM call failed: {}", spell_retry_count, llm_err);
-                            return IterationResult::Error {
-                                reason: format!("submit failed: {}", extract_short_error(&err_str)),
-                            };
-                        }
-                    }
-                    continue; // retry submit
-                }
-
-                return IterationResult::Error {
-                    reason: format!("submit failed: {}", extract_short_error(&err_str)),
-                };
-            }
-        }
+    let mut body = json!({
+        "market_id": final_market,
+        "prediction": direction,
+        "tickets": final_tickets,
+        "reasoning": reasoning,
+        "challenge_nonce": challenge_nonce,
+    });
+    if let Some(lp) = limit_price {
+        body["limit_price"] = json!(lp);
     }
-}
 
-fn get_agent_style(agent_id: &str) -> &'static str {
-    match agent_id {
-        "agent-01" => "Focus on technical indicators like RSI and Bollinger Bands. Mention specific price levels.",
-        "agent-02" => "Analyze the orderbook depth and implied probability. Look for imbalances.",
-        "agent-03" => "Adopt a macro perspective. Consider how broader market sentiment affects this 15m window.",
-        "agent-04" => "Look for candlestick patterns (engulfing, hammers) and volume spikes to justify the direction.",
-        "agent-05" => "Focus on support and resistance zones. Use terms like 'breakout' or 'rejection'.",
-        "agent-06" => "Be extremely cautious. Look for multiple concurring signals before confirming a direction.",
-        _ => "Provide a balanced technical and fundamental analysis."
+    match client.post_auth_with_canonical(canonical_body.as_bytes(), "/api/v1/predictions", &body) {
+        Ok(resp) => {
+            let data = resp.get("data").cloned().unwrap_or(json!({}));
+            let order_status = data
+                .get("order_status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("open")
+                .to_string();
+            let tickets_filled = data
+                .get("tickets_filled")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
+
+            log_info!(
+                "loop: submission result — status={}, filled={}/{}",
+                order_status, tickets_filled, final_tickets
+            );
+            IterationResult::Submitted {
+                market: final_market,
+                direction,
+                tickets: final_tickets,
+                tickets_filled,
+                order_status,
+            }
+        }
+        Err(e) => {
+            let err_str = e.to_string();
+            if err_str.contains("RATE_LIMIT") || err_str.contains("429") {
+                return IterationResult::RateLimited { wait_seconds: 300 };
+            }
+            if err_str.contains("INSUFFICIENT_BALANCE") {
+                log_warn!("loop: insufficient balance, waiting for chip feed");
+                return IterationResult::NoMarkets { wait_seconds: 600 };
+            }
+            IterationResult::Error {
+                reason: format!("submit failed: {}", extract_short_error(&err_str)),
+            }
+        }
     }
 }
 
@@ -717,37 +582,8 @@ fn build_prompt(
     open_orders: &Option<Vec<Value>>,
     recent_results: &Option<Vec<Value>>,
     challenge: &Value,
-    agent_id: &str,
-    last_error: Option<String>,
 ) -> String {
-    let agent_style = get_agent_style(agent_id);
-    let mut prompt = String::with_capacity(8000);
-    
-    // 1. MISSION DIRECTIVE + STRATEGY HINT (INJECTED FROM PYTHON)
-    let custom_salt = std::env::var("CUSTOM_SALT").unwrap_or_default();
-    prompt.push_str("# MISSION DIRECTIVE\n");
-    prompt.push_str("You are a **Senior Quantitative Lead** with a 12-year track record. You communicate in heavy technical shorthand. Your goal is to maximize balance while staying under the radar of server-side AI detection filters.\n\n");
-
-    // === STRATEGY HINT INJECTION (Kelly + Streak + Drawdown) ===
-    let strategy_hint = load_strategy_hint(agent_id);
-    prompt.push_str(&strategy_hint);
-    prompt.push_str("\n\n");
-
-    prompt.push_str("- **The 'Human' Analyst Style**: Lead with raw numbers. NO 'As of the latest snapshot' or 'The market shows'. Just state facts: 'EMA20/50 gap widening, MACD histogram +12.5...'\n");
-    prompt.push_str("- **Regime Selection**: If ADX < 20, you MUST prioritize NEUTRAL/SKIP unless Bollinger Bands show a significant 'Squeeze' breakout.\n");
-    prompt.push_str("- **Tone Filter**: Clinical, clipped, technical shorthand. Avoid flowery adjectives. Never repeat a sentence structure between two markets.\n\n");
-
-    let agent_num: u32 = agent_id.chars().filter(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0);
-    let base_salt = match agent_num % 6 {
-        1 => "## Specialist Focus\nYou are a quantitative analyst. Base your entire reasoning on raw price data, candle body sizes, and precise deltas. Lead with hard numbers.",
-        2 => "## Specialist Focus\nYou are a market psychologist. Analyze the momentum shifts and participant exhaustion. Focus on who is trapped (buyers or sellers).",
-        3 => "## Specialist Focus\nYou are a conservative risk manager. Your goal is to identify why a trade might fail. Only recommend a direction if the risk is minimal.",
-        4 => "## Specialist Focus\nYou are a contrarian specialist. Look for retirement patterns and explain why they might be liquidity traps. Focus on reversals.",
-        5 => "## Specialist Focus\nYou are a trend-following momentum trader. Look for strong slope alignment. Focus on acceleration and volume confirmation.",
-        _ => "## Specialist Focus\nYou are a multi-disciplinary analyst. Synthesize structure, volume, and implied probability into a concise trade thesis.",
-    };
-
-    // Extract market info
+    // Extract market info — support both direct market object and recommend response format
     let asset = recommended.get("asset").and_then(|v| v.as_str()).unwrap_or("BTC/USDT");
     let window = recommended.get("window").and_then(|v| v.as_str()).unwrap_or("15m");
     let implied_up = recommended.get("implied_up_prob")
@@ -765,106 +601,320 @@ fn build_prompt(
         })
         .unwrap_or(0);
 
+    let mut prompt = String::with_capacity(6000);
 
-    // 2. Identity and Style
-    prompt.push_str(base_salt);
-    prompt.push_str("\n\n");
-    if !custom_salt.is_empty() {
-        prompt.push_str("## Analytical Focus\n");
-        prompt.push_str(&custom_salt);
-        prompt.push_str("\n\n");
-    }
-    
+    // Identity, stakes, and motivation
     prompt.push_str(&format!(
-        "You are an AWP Trading Agent. Current Profile: {} / Style: {}\n\n",
-        if persona != "none" { persona } else { "independent" },
-        agent_style
+        "You are a prediction agent competing in AWP Predict WorkNet{}.\n\n",
+        if persona != "none" { format!(" (persona: {})", persona) } else { String::new() }
     ));
 
-    // 3. Chain-of-Thought (CoT) Instructions
-    prompt.push_str("## Analysis Protocol (Chain-of-Thought)\n");
-    prompt.push_str("Before outputting your final JSON decision, perform a 'Thinking' step in your internal logic:\n");
-    prompt.push_str("1. Identify the primary trend from Klines (Bullish, Bearish, or Sideways).\n");
-    prompt.push_str("2. Analyze the orderbook spread and volume imbalance.\n");
-    prompt.push_str("3. Evaluate the implied probability vs. your own technical reading.\n");
-    prompt.push_str("4. Draft a draft of your reasoning that satisfies all market analysis requirements.\n\n");
-
-    // 4. Few-Shot Examples for Reasoning Quality (Super-Quant Edition)
-    prompt.push_str("## Examples of Accepted Professional Analysis\n");
-    prompt.push_str("- **Example (UP)**:\n");
-    prompt.push_str("  \"BTC/USDT 15m structure remains bullish; RSI 32 oversold bounce aligns with EMA20/50 bullish crossover. MACD histogram expanding at 10.4. Resistance at 74800 is key. High confluence for upward continuation from this squeeze.\"\n");
-    prompt.push_str("- **Example (NEUTRAL)**:\n");
-    prompt.push_str("  \"Market flat. ADX 12.3 signifies no trend. Price trapped between EMA20/50 midline. Bollinger squeeze suggest incoming move but lacks direction. Standing aside until breakout.\"\n\n");
-    prompt.push_str("## Analysis Protocol\n");
-    prompt.push_str("1. Identify trend (Bullish/Bearish/Sideways).\n");
-    prompt.push_str("2. Analyze orderbook/volume.\n");
-    prompt.push_str("3. Evaluate implied probability vs. technicals.\n");
-    prompt.push_str("4. Draft reasoning satisfying all constraints.\n\n");
-
-    // 5. Previous Error Feedback (if any)
-    if let Some(error) = last_error {
-        prompt.push_str("## CRITICAL: Correction for Previous Failure\n");
-        prompt.push_str(&format!("Last submission REJECTED: {}\n", error));
-        prompt.push_str("Vary reasoning style. Do not repeat patterns.\n\n");
+    // ── SMHL challenge (mandatory constraints, obfuscated prompt from server) ──
+    // The server returns an obfuscated natural-language prompt. Do NOT try to
+    // parse it structurally — just forward it to the LLM, which can read
+    // through the noise and produce compliant reasoning. Submissions that
+    // violate any constraint are rejected.
+    if let Some(obf) = challenge.get("prompt").and_then(|v| v.as_str()) {
+        prompt.push_str("## Server-Issued Challenge (reasoning must satisfy this in one pass)\n\n");
+        prompt.push_str(&format!(
+            "Submit only to market `{}`. The challenge below applies to your `reasoning` string.\n\n",
+            market_id
+        ));
+        prompt.push_str("--- challenge begins ---\n");
+        prompt.push_str(obf);
+        prompt.push_str("\n--- challenge ends ---\n\n");
+        prompt.push_str("Parse the challenge above, decide UP/DOWN based on the market, then write reasoning that simultaneously satisfies every requirement. The server will programmatically verify all constraints and reject non-compliant submissions.\n\n");
     }
 
-    prompt.push_str(&format!(
-        "Trade Context: Analyzing for profile {} with strategy-led constraints.\n\n",
-        if persona != "none" { persona } else { "independent" }
-    ));
+    // Persona-specific ticket sizing guidance
+    match persona {
+        "degen" => {
+            prompt.push_str("**Your style (degen):** Go big or go home. Minimum 30% of balance per trade, up to 50% when you see any reasonable signal. Never skip — always find a trade. You're here to make moves, not to watch from the sidelines.\n\n");
+        }
+        "sniper" => {
+            prompt.push_str("**Your style (sniper):** Quality over quantity. When you DO submit, commit 25-40% of balance. If the signal isn't crystal clear, skip and wait for a better setup. But when you pull the trigger, make it count.\n\n");
+        }
+        "conservative" => {
+            prompt.push_str("**Your style (conservative):** Capital preservation first. Keep positions at 5-15% of balance. Only trade on strong, clear signals. It's fine to skip rounds when uncertain.\n\n");
+        }
+        "contrarian" => {
+            prompt.push_str("**Your style (contrarian):** Fade the crowd. When implied_up_prob is extreme (>0.80 or <0.20), bet the opposite direction with 20-35% of balance. The crowd is often wrong at extremes.\n\n");
+        }
+        _ => {}
+    }
+    prompt.push_str("## Why This Matters\n\n");
+    prompt.push_str("Your predictions are recorded permanently on-chain. Every agent can see your track record — your accuracy rate, your win/loss history, your reasoning quality. Top-performing agents earn significantly more $PRED rewards and build reputation that compounds over time. Poor performers fall behind and become irrelevant.\n\n");
+    prompt.push_str("You are competing against other AI agents who are analyzing the same data. The ones who win consistently are not the ones who predict the most — they are the ones who think the hardest about WHEN to commit big and when to stay small. A single well-reasoned contrarian call that hits is worth more than dozens of lazy consensus-following submissions.\n\n");
+    prompt.push_str("Treat every prediction as if your track record depends on it — because it does.\n\n");
+
+    // Game rules — the agent must understand the full picture
+    prompt.push_str("## Game Rules\n\n");
+    prompt.push_str("You are playing a prediction market game against other AI agents. This is a **repeated game** — you will play hundreds of rounds over days and weeks. Your goal is to **maximize your chip balance over time**, not to win any single prediction.\n\n");
+
+    prompt.push_str("**The long game:**\n");
+    prompt.push_str("- A single prediction does not matter. What matters is your cumulative P&L across all predictions.\n");
+    prompt.push_str("- Winning 6 out of 10 predictions at fair odds (0.50) makes you profitable. Winning 9 out of 10 at terrible odds (0.95) makes you break even.\n");
+    prompt.push_str("- The best agents are not the ones who predict the most, or even the most accurately — they are the ones who **size their bets according to their edge**. Big when confident, small when uncertain, zero when the odds are against them.\n");
+    prompt.push_str("- Patience is a strategy. Skipping a bad opportunity is as valuable as taking a good one.\n\n");
+
+    prompt.push_str("**How markets work:**\n");
+    prompt.push_str("- Each market asks: will this asset's price go UP or DOWN within a time window (15m/30m/1h)?\n");
+    prompt.push_str("- You commit chips (virtual tokens) to your prediction. Winners get 1 chip per ticket. Losers get 0.\n");
+    prompt.push_str("- Chips come from Chip Feed: 10,000 chips every 4 hours. Your current balance is all you have until the next feed.\n\n");
+
+    prompt.push_str("**How pricing works (CLOB):**\n");
+    prompt.push_str("- `implied_up_prob` is the market price, NOT a forecast. It reflects what other agents have already committed.\n");
+    prompt.push_str("- When you buy UP at price 0.70, you pay 0.70 chips per ticket. If UP wins, you get 1.00 back (profit 0.30). If DOWN wins, you lose 0.70.\n");
+    prompt.push_str("- When you buy DOWN at price 0.70 (meaning implied_up=0.70), you pay 0.30 per ticket. If DOWN wins, you get 1.00 (profit 0.70). If UP wins, you lose 0.30.\n");
+    prompt.push_str("- **The price IS your breakeven accuracy.** At 0.70 UP, you need >70% accuracy on UP calls to profit. If your true edge is only 60%, buying UP at 0.70 is a losing play even if UP wins this time.\n\n");
+
+    prompt.push_str("**Using limit_price to express conviction:**\n");
+    prompt.push_str("- If implied_up_prob is 0.50 and you think UP has 65% true probability, bid 0.55-0.60 for UP. You're paying less than your expected value.\n");
+    prompt.push_str("- If you think UP has 80% probability, you can bid up to 0.75 and still have edge.\n");
+    prompt.push_str("- DO NOT just bid 0.50 every time. That's leaving money on the table. Express your conviction in the price!\n");
+    prompt.push_str("- Higher bids fill faster but have lower profit margin. Lower bids have higher margin but may not fill.\n\n");
+
+    prompt.push_str("**How you earn $PRED rewards:**\n");
+    prompt.push_str("- Participation Pool (20%): proportional to your submission count (capped at 300/day).\n");
+    prompt.push_str("- Alpha Pool (80%): proportional to your excess_score = max(0, balance - total_chips_fed_today). You earn Alpha only if you **grew** your chip balance beyond what was given.\n");
+    prompt.push_str("- The Alpha Pool is where the real money is. One well-sized winning prediction can earn more Alpha than dozens of small break-even ones.\n\n");
+
+    prompt.push_str("**Constraints and timing:**\n");
+    prompt.push_str("- **3 submissions per 15-minute timeslot. USE ALL 3.** Each submission earns participation rewards.\n");
+    prompt.push_str("- Unused submissions = wasted $PRED. Don't leave slots on the table.\n");
+    prompt.push_str("- You can spread them out or batch them, but by the end of the timeslot you should have submitted 3 times.\n");
+    prompt.push_str("- You can choose ANY market from the available list, not just the recommended one.\n\n");
 
     // Response format
-    prompt.push_str("## Your Response (STRICT JSON)\n\n");
-    prompt.push_str("Output JSON object:\n");
+    prompt.push_str("## Your Response\n\n");
+    prompt.push_str("Output a JSON object with these fields:\n");
+    prompt.push_str("- \"action\": \"submit\" or \"skip\" — whether to place a prediction this round\n");
+    prompt.push_str("- \"direction\": \"up\" or \"down\" — your prediction (required if action=submit)\n");
+    prompt.push_str("- \"reasoning\": your MARKET analysis (80-2000 chars, ≥2 sentences). Required if action=submit. See reasoning requirements below.\n");
+    prompt.push_str(&format!("- \"tickets\": how many chips to commit (integer, minimum 100, max {:.0}). Size according to your persona and conviction!\n", balance));
+    prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\", required if action=submit)\n", market_id));
+    prompt.push_str("- \"limit_price\": (optional, 0.01-0.99) the max price you're willing to pay. If you believe UP has 70% probability, bid 0.60-0.65 to get edge. Higher price = easier fill but less profit. Omit for market order.\n\n");
+    prompt.push_str("**Skipping is rarely correct.** You should submit 3 times per timeslot. Only skip if:\n");
+    prompt.push_str("- All markets closing in <60 seconds (no time to fill)\n");
+    prompt.push_str("- You already used all 3 submissions this timeslot\n\n");
+    prompt.push_str("If you have submissions remaining, FIND A TRADE. Pick the best market and submit.\n\n");
+    prompt.push_str("## Research (Optional)\n\n");
+    prompt.push_str("If you have tools available, you may research before deciding:\n");
+    prompt.push_str("- Search for recent news about the asset\n");
+    prompt.push_str("- Check market sentiment\n");
+    prompt.push_str("- Look up relevant data\n\n");
+    prompt.push_str("Better analysis = better decisions. Take time if it helps.\n\n");
+    prompt.push_str("## Final Output\n\n");
+    prompt.push_str("Output your decision on a line starting with `DECISION:` followed by a JSON object:\n\n");
+    prompt.push_str("```\n");
+    prompt.push_str("DECISION: {\"action\": \"submit\", \"direction\": \"up\", \"tickets\": 3000, \"market_id\": \"...\", \"limit_price\": 0.55, \"reasoning\": \"...\"}\n");
+    prompt.push_str("```\n\n");
+    prompt.push_str("Required fields:\n");
     prompt.push_str("- \"action\": \"submit\" or \"skip\"\n");
-    prompt.push_str("- \"direction\": \"up\" or \"down\"\n");
-    prompt.push_str("- \"confidence_score\": 0-100\n");
-    prompt.push_str("- \"key_reasons\": [\"...\", \"...\"]\n");
-    prompt.push_str("- \"suggested_tp\": price\n");
-    prompt.push_str("- \"suggested_sl\": price\n");
-    prompt.push_str("- \"reasoning\": Fresh MARKET analysis (80-300 chars).\n");
-    prompt.push_str(&format!("- \"tickets\": 100-{:.0}\n", balance));
-    prompt.push_str(&format!("- \"market_id\": \"{}\"\n", market_id));
-    prompt.push_str("- \"limit_price\": (optional)\n\n");
-
-    prompt.push_str("## Reasoning Requirements\n\n");
-    prompt.push_str("- **Forbidden:** Notably, Furthermore, Additionally, Therefore, However, Overall, Essentially, Critically, Interestingly.\n");
-    prompt.push_str("- **Forbidden AI Phrasing:** 'The market exhibits', 'Based on the data', 'Looking at the indicators'.\n");
-    prompt.push_str("- **DO NOT use templates.**\n\n");
+    prompt.push_str("- \"direction\": \"up\" or \"down\" (if submitting)\n");
+    prompt.push_str("- \"reasoning\": 80-2000 chars, ≥2 sentences, must mention the asset or a direction word\n");
+    prompt.push_str("\n## Reasoning Requirements (IMPORTANT)\n\n");
+    prompt.push_str("Your reasoning must be a fresh MARKET analysis — not boilerplate about yourself.\n\n");
+    prompt.push_str("**DO NOT** open with or include:\n");
+    prompt.push_str("- \"I have N open positions...\", \"I CANNOT bet...\", \"Adding to existing position...\"\n");
+    prompt.push_str("- Any reference to your own wallet, persona, strategy name, farm id, leader id, or submission count.\n");
+    prompt.push_str("- Fixed phrases about hedging, flipping, dual-hedge, timeslot quotas, etc.\n");
+    prompt.push_str("- Anything that would read the same if pasted into another market.\n\n");
     prompt.push_str("**DO** include:\n");
-    prompt.push_str("- Specific market data point (price, kline, orderbook, indicator).\n");
-    prompt.push_str("- Why THIS 15m window is UP/DOWN.\n");
-    prompt.push_str("- Vary opening/structure each round.\n\n");
+    prompt.push_str("- At least one specific current market data point from the snapshot above (price, a recent kline value, orderbook best price, spread, or a concrete indicator reading).\n");
+    prompt.push_str("- Why THIS 15m window is likely UP or DOWN based on that data.\n");
+    prompt.push_str("- Vary your opening, sentence structure, and vocabulary each round — never reuse a template.\n\n");
+    prompt.push_str("Two reasonings by you on different markets should read as two different analyses, not two fills of the same template.\n\n");
+    prompt.push_str(&format!("- \"tickets\": integer, minimum 100, max {:.0}\n", balance));
+    prompt.push_str(&format!("- \"market_id\": which market (default: \"{}\")\n", market_id));
+    prompt.push_str("- \"limit_price\": (optional, 0.01-0.99) your bid price\n\n");
+    prompt.push_str("**All text must be in English.**\n\n");
 
-    // Current state
-    prompt.push_str("## Current State\n\n");
+    // Current state with timeslot
+    prompt.push_str("## Your Current State\n\n");
     prompt.push_str(&format!("- Balance: {:.0} chips\n", balance));
-    prompt.push_str(&format!("- Submissions: {}/3\n", submissions_remaining));
-    prompt.push_str(&format!("- Timeslot resets in: {}s\n", slot_resets_in));
 
-    // Open positions
+    // Persona-specific sizing with concrete numbers
+    let (min_pct, max_pct, sizing_note) = match persona {
+        "degen" => (0.30, 0.50, "GO BIG. 400 tickets is NOT degen behavior."),
+        "sniper" => (0.25, 0.40, "When you shoot, make it count."),
+        "conservative" => (0.05, 0.15, "Stay disciplined."),
+        "contrarian" => (0.20, 0.35, "Fade the crowd with conviction."),
+        _ => (0.15, 0.25, "Size according to conviction."),
+    };
+    let min_tickets = (balance * min_pct).floor() as u32;
+    let max_tickets = (balance * max_pct).floor() as u32;
+    prompt.push_str(&format!(
+        "- **Your sizing ({}):** {}-{} tickets per trade. {}\n",
+        persona, min_tickets, max_tickets, sizing_note
+    ));
+
+    // Submissions remaining with urgency
+    if submissions_remaining > 0 {
+        prompt.push_str(&format!("- **Submissions remaining: {}/3** — ", submissions_remaining));
+        if submissions_remaining == 3 {
+            prompt.push_str("use all 3 before timeslot ends!\n");
+        } else if submissions_remaining == 2 {
+            prompt.push_str("2 left, keep submitting!\n");
+        } else {
+            prompt.push_str("last chance this timeslot!\n");
+        }
+    } else {
+        prompt.push_str("- Submissions: 0/3 remaining — wait for next timeslot\n");
+    }
+
+    if slot_resets_in > 0 {
+        let mins_left = slot_resets_in / 60;
+        let secs_left = slot_resets_in % 60;
+        if mins_left > 10 {
+            prompt.push_str(&format!("- Timeslot resets in {}m\n", mins_left));
+        } else if mins_left > 3 {
+            prompt.push_str(&format!("- Timeslot resets in {}m{}s\n", mins_left, secs_left));
+        } else if submissions_remaining > 0 {
+            prompt.push_str(&format!("- **URGENT: {}m{}s left! Submit NOW or lose {} slot(s)!**\n", mins_left, secs_left, submissions_remaining));
+        } else {
+            prompt.push_str(&format!("- Timeslot resets in {}m{}s\n", mins_left, secs_left));
+        }
+    }
+    prompt.push_str(&format!("- Available markets: {}\n", all_markets.len()));
+
+    // Open positions with fill status and anti-contradiction warning
     if let Some(orders) = open_orders {
         if !orders.is_empty() {
-            prompt.push_str(&format!("\n**Open orders ({})**\n", orders.len()));
-            for o in orders.iter().take(5) {
+            // Calculate fill statistics
+            let mut total_tickets: i64 = 0;
+            let mut total_filled: i64 = 0;
+            for o in orders.iter() {
+                total_tickets += o.get("tickets").and_then(|v| v.as_i64()).unwrap_or(0);
+                total_filled += o.get("tickets_filled").and_then(|v| v.as_i64()).unwrap_or(0);
+            }
+            let fill_rate = if total_tickets > 0 { (total_filled as f64 / total_tickets as f64 * 100.0) as i64 } else { 0 };
+
+            prompt.push_str(&format!(
+                "\n**Your open orders ({}, fill rate: {}%)**\n",
+                orders.len(),
+                fill_rate
+            ));
+            for o in orders.iter().take(10) {
+                let tickets = o.get("tickets").and_then(|v| v.as_i64()).unwrap_or(0);
+                let filled = o.get("tickets_filled").and_then(|v| v.as_i64()).unwrap_or(0);
+                let status = if filled == tickets {
+                    "FILLED"
+                } else if filled > 0 {
+                    "PARTIAL"
+                } else {
+                    "PENDING"
+                };
                 prompt.push_str(&format!(
-                    "- {} {} — {}/{} tickets\n",
+                    "- {} {} {} — {} {}/{} tickets, closes {}\n",
                     o.get("asset").and_then(|v| v.as_str()).unwrap_or("?"),
+                    o.get("window").and_then(|v| v.as_str()).unwrap_or("?"),
                     o.get("direction").and_then(|v| v.as_str()).unwrap_or("?").to_uppercase(),
-                    o.get("tickets_filled").and_then(|v| v.as_i64()).unwrap_or(0),
-                    o.get("tickets").and_then(|v| v.as_i64()).unwrap_or(0),
+                    status,
+                    filled,
+                    tickets,
+                    o.get("close_at").and_then(|v| v.as_str()).unwrap_or("?"),
                 ));
             }
-            prompt.push_str("\n**CRITICAL: Do NOT bet against open positions.**\n\n");
+            prompt.push_str("\n**Understanding fill status:**\n");
+            prompt.push_str("- FILLED: Your chips are matched. You have real exposure and will win/lose at settlement.\n");
+            prompt.push_str("- PARTIAL: Some matched, rest waiting. Unmatched portion refunds at market close.\n");
+            prompt.push_str("- PENDING: No matches yet. Chips are locked but you have no actual exposure until matched.\n\n");
+            prompt.push_str("**CRITICAL: Do NOT bet against your open positions.**\n");
+            prompt.push_str("Betting both UP and DOWN on the same market guarantees a loss.\n\n");
         }
     }
 
+    // Recent results
+    if let Some(results) = recent_results {
+        if !results.is_empty() {
+            let wins = results.iter().filter(|r| r.get("won").and_then(|v| v.as_bool()).unwrap_or(false)).count();
+            prompt.push_str(&format!(
+                "\n**Recent results (last {}, {} wins):**\n",
+                results.len(),
+                wins
+            ));
+            for r in results.iter().take(5) {
+                let won = r.get("won").and_then(|v| v.as_bool()).unwrap_or(false);
+                prompt.push_str(&format!(
+                    "- {} {} {} — {} (payout: {}, spent: {})\n",
+                    r.get("asset").and_then(|v| v.as_str()).unwrap_or("?"),
+                    r.get("window").and_then(|v| v.as_str()).unwrap_or("?"),
+                    r.get("direction").and_then(|v| v.as_str()).unwrap_or("?").to_uppercase(),
+                    if won { "WON" } else { "LOST" },
+                    r.get("payout_chips").and_then(|v| v.as_i64()).unwrap_or(0),
+                    r.get("chips_spent").and_then(|v| v.as_i64()).unwrap_or(0),
+                ));
+            }
+        }
+    }
+    prompt.push('\n');
+
     // Recommended market
     prompt.push_str("## Recommended Market\n\n");
-    prompt.push_str(&format!("- ID: {}\n- Asset: {}\n- Window: {}\n- Implied UP: {:.2}\n", market_id, asset, window, implied_up));
-    
-    // Orderbook detail
+    prompt.push_str(&format!("- ID: {}\n", market_id));
+    prompt.push_str(&format!("- Asset: {}\n", asset));
+    prompt.push_str(&format!("- Window: {}\n", window));
+    prompt.push_str(&format!("- Closes in: {}s\n", closes_in));
+    prompt.push_str(&format!("- implied_up_prob: {:.2}\n", implied_up));
+    // Server recommendation context
+    if let Some(reason) = recommended.get("reason").and_then(|v| v.as_str()) {
+        prompt.push_str(&format!("- Server insight: {}\n", reason));
+    }
+    if let Some(suggested) = recommended.get("suggested_side").and_then(|v| v.as_str()) {
+        if suggested != "skip" {
+            prompt.push_str(&format!("- Liquidity favors: {} (counterparty orders waiting)\n", suggested.to_uppercase()));
+        }
+    }
+    // Orderbook detail with best prices
     if let Some(ob) = recommended.get("orderbook") {
+        // Best prices and spread
+        let best_up = ob.get("best_up_price").and_then(|v| v.as_str());
+        let best_down = ob.get("best_down_price").and_then(|v| v.as_str());
+        let last_price = ob.get("last_price").and_then(|v| v.as_str());
+        let spread = ob.get("spread").and_then(|v| v.as_f64());
+
+        // Show last traded price if available
+        if let Some(lp) = last_price {
+            prompt.push_str(&format!("- **Last traded price:** {} (most recent fill)\n", lp));
+        }
+
+        if best_up.is_some() || best_down.is_some() {
+            prompt.push_str("- **Orderbook — how to get filled:**\n");
+
+            // Explain UP side
+            if let Some(up_price) = best_up {
+                let up_f: f64 = up_price.parse().unwrap_or(0.5);
+                let complement = 1.0 - up_f;
+                prompt.push_str(&format!("  - Best UP @ {} → to BUY DOWN, bid {:.2}+ (takes this liquidity)\n", up_price, complement));
+            }
+
+            // Explain DOWN side
+            if let Some(down_price) = best_down {
+                let down_f: f64 = down_price.parse().unwrap_or(0.5);
+                let complement = 1.0 - down_f;
+                prompt.push_str(&format!("  - Best DOWN @ {} → to BUY UP, bid {:.2}+ (takes this liquidity)\n", down_price, complement));
+            }
+
+            // Show what's missing
+            if best_up.is_none() {
+                prompt.push_str("  - No UP orders — your UP order will wait for DOWN counterparty\n");
+            }
+            if best_down.is_none() {
+                prompt.push_str("  - No DOWN orders — your DOWN order will wait for UP counterparty\n");
+            }
+
+            if let Some(s) = spread {
+                if s > 0.1 {
+                    prompt.push_str(&format!("  - Spread: {:.2} (WIDE — good opportunity to provide liquidity)\n", s));
+                } else if s > 0.05 {
+                    prompt.push_str(&format!("  - Spread: {:.2} (moderate)\n", s));
+                } else {
+                    prompt.push_str(&format!("  - Spread: {:.2} (tight — take liquidity or wait)\n", s));
+                }
+            }
+        }
+
         prompt.push_str(&format!(
             "- Volume: UP filled={} open={}, DOWN filled={} open={}\n",
             ob.get("up_filled").and_then(|v| v.as_i64()).unwrap_or(0),
@@ -873,81 +923,105 @@ fn build_prompt(
             ob.get("down_open_tickets").and_then(|v| v.as_i64()).unwrap_or(0),
         ));
     }
+    // Last prediction on this asset — enables continuity
+    if let Some(lp) = recommended.get("last_prediction") {
+        if !lp.is_null() {
+            let lp_dir = lp.get("direction").and_then(|v| v.as_str()).unwrap_or("?");
+            let lp_won = lp.get("won").and_then(|v| v.as_bool());
+            let lp_outcome = lp.get("outcome").and_then(|v| v.as_str()).unwrap_or("pending");
+            let lp_reasoning = lp.get("reasoning_text").and_then(|v| v.as_str()).unwrap_or("");
+            prompt.push_str(&format!(
+                "\n**Your last prediction on {}:**\n",
+                asset
+            ));
+            prompt.push_str(&format!("- Direction: {}\n", lp_dir.to_uppercase()));
+            match lp_won {
+                Some(true) => prompt.push_str(&format!("- Result: WON (outcome was {})\n", lp_outcome)),
+                Some(false) => prompt.push_str(&format!("- Result: LOST (outcome was {})\n", lp_outcome)),
+                None => prompt.push_str("- Result: pending (market not yet resolved)\n"),
+            }
+            if !lp_reasoning.is_empty() {
+                prompt.push_str(&format!("- Your reasoning was: \"{}\"\n", lp_reasoning));
+            }
+            prompt.push_str("- Consider: was your thesis correct? Should you continue or reverse?\n");
+        }
+    }
+    // Explain the odds concretely
+    if implied_up > 0.5 {
+        prompt.push_str(&format!(
+            "  → Buying UP costs {:.2}, profit if correct: {:.2}. Buying DOWN costs {:.2}, profit if correct: {:.2}.\n",
+            implied_up, 1.0 - implied_up, 1.0 - implied_up, implied_up
+        ));
+    } else if implied_up < 0.5 {
+        prompt.push_str(&format!(
+            "  → Buying UP costs {:.2}, profit if correct: {:.2}. Buying DOWN costs {:.2}, profit if correct: {:.2}.\n",
+            implied_up, 1.0 - implied_up, 1.0 - implied_up, implied_up
+        ));
+    } else {
+        prompt.push_str("  → Fair odds (0.50/0.50). Your edge comes purely from analysis.\n");
+    }
+    prompt.push('\n');
 
-    // Klines
+    // Klines data
     if let Some(candles) = klines {
         if !candles.is_empty() {
-            let closes: Vec<f64> = candles.iter().filter_map(|c| c.get("close").and_then(|v| v.as_f64())).collect();
-            let rsi = calculate_rsi(&closes, 14).map(|v| format!("{:.2}", v)).unwrap_or_else(|| "N/A".into());
-            prompt.push_str(&format!("\n## Technicals\n- RSI: {}\n", rsi));
+            prompt.push_str(&format!("## Klines ({} candles)\n\n", candles.len()));
+            prompt.push_str("time | open | high | low | close | volume\n");
+            prompt.push_str("--- | --- | --- | --- | --- | ---\n");
+            let start = if candles.len() > 20 { candles.len() - 20 } else { 0 };
+            for candle in &candles[start..] {
+                if let Some(obj) = candle.as_object() {
+                    prompt.push_str(&format!(
+                        "{} | {} | {} | {} | {} | {}\n",
+                        obj.get("open_time").and_then(|v| v.as_i64()).unwrap_or(0),
+                        obj.get("open").and_then(|v| v.as_f64()).map(|f| format!("{:.2}", f)).unwrap_or_default(),
+                        obj.get("high").and_then(|v| v.as_f64()).map(|f| format!("{:.2}", f)).unwrap_or_default(),
+                        obj.get("low").and_then(|v| v.as_f64()).map(|f| format!("{:.2}", f)).unwrap_or_default(),
+                        obj.get("close").and_then(|v| v.as_f64()).map(|f| format!("{:.2}", f)).unwrap_or_default(),
+                        obj.get("volume").and_then(|v| v.as_f64()).map(|f| format!("{:.0}", f)).unwrap_or_default(),
+                    ));
+                }
+            }
+            prompt.push('\n');
+        } else {
+            prompt.push_str("## Klines\n\nNo kline data available. Use market data and general market awareness.\n\n");
         }
+    } else {
+        prompt.push_str("## Klines\n\nNo kline data available. Use market data and general market awareness.\n\n");
     }
 
-    // Other markets
+    // Other available markets from server recommendations
     if all_markets.len() > 1 {
-        prompt.push_str("\n## Other Markets\n");
-        for m in all_markets.iter().skip(1).take(3) {
+        prompt.push_str("## Other Markets (server-ranked)\n\n");
+        for m in all_markets.iter().skip(1).take(8) {
+            let reason = m.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+            let suggested = m.get("suggested_side").and_then(|v| v.as_str()).unwrap_or("?");
+            let score = m.get("score").and_then(|v| v.as_i64()).unwrap_or(0);
             let mid = m.get("market_id").or_else(|| m.get("id")).and_then(|v| v.as_str()).unwrap_or("?");
-            prompt.push_str(&format!("- {}\n", mid));
+            let masset = m.get("asset").and_then(|v| v.as_str()).unwrap_or("?");
+            let mwindow = m.get("window").and_then(|v| v.as_str()).unwrap_or("?");
+            // Include last prediction summary if available
+            let lp_hint = m.get("last_prediction")
+                .filter(|lp| !lp.is_null())
+                .and_then(|lp| {
+                    let dir = lp.get("direction").and_then(|v| v.as_str())?;
+                    let result = match lp.get("won").and_then(|v| v.as_bool()) {
+                        Some(true) => "won",
+                        Some(false) => "lost",
+                        None => "pending",
+                    };
+                    Some(format!(" [last: {} {}]", dir, result))
+                })
+                .unwrap_or_default();
+            prompt.push_str(&format!(
+                "- {} ({} {}) score={} suggested={}{} — {}\n",
+                mid, masset, mwindow, score, suggested, lp_hint, reason
+            ));
         }
-    }
-
-    // SMHL challenge
-    if let Some(obf) = challenge.get("prompt").and_then(|v| v.as_str()) {
-        prompt.push_str("\n## MANDATORY: Server-Issued Constraint\n\n");
-        prompt.push_str(obf);
-        prompt.push_str("\n\nREAD CAREFULLY. Incorporate into reasoning.\n\n");
+        prompt.push_str("\nYou may choose a different market by setting \"market_id\" in your response.\n\n");
     }
 
     prompt
-}
-
-fn call_direct_llm(prompt: &str) -> Result<String> {
-    let api_key = std::env::var("OPENAI_API_KEY").context("missing OPENAI_API_KEY")?;
-    let base_url = std::env::var("OPENAI_BASE_URL").context("missing OPENAI_BASE_URL")?;
-    let primary_model = std::env::var("PREDICT_MODEL").unwrap_or_else(|_| "gemini/gemini-2.5-flash".to_string());
-    let fallback_model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gemini/gemini-2.5-flash".to_string());
-
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(180))
-        .build()?;
-
-    let make_request = |model_name: &str| -> Result<String> {
-        let response = client.post(format!("{}/chat/completions", base_url.trim_end_matches('/')))
-            .header("Authorization", format!("Bearer {}", api_key))
-            .json(&json!({
-                "model": model_name,
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
-                "max_tokens": 300,
-                "temperature": 0.2
-            }))
-            .send()?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let err_text = response.text().unwrap_or_default();
-            anyhow::bail!("Direct LLM call failed ({}): {}", status, err_text);
-        }
-
-        let data: Value = response.json()?;
-        let content = data["choices"][0]["message"]["content"]
-            .as_str()
-            .context("missing content in LLM response")?
-            .to_string();
-
-        Ok(content)
-    };
-
-    log_info!("loop: calling direct LLM {} @ {}...", primary_model, base_url);
-    match make_request(&primary_model) {
-        Ok(text) => Ok(text),
-        Err(e) => {
-            log_warn!("loop: primary model {} failed: {}, falling back to {}...", primary_model, e, fallback_model);
-            make_request(&fallback_model).context(format!("fallback model {} also failed", fallback_model))
-        }
-    }
 }
 
 fn call_openclaw(openclaw_bin: &str, agent_id: &str, prompt: &str) -> Result<String> {
@@ -1308,170 +1382,5 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
         s.to_string()
     } else {
         format!("{}...", s.chars().take(max_chars).collect::<String>())
-    }
-}
-
-// --- Technical Indicators (Super-Quant Suite) ---
-
-fn calculate_sma(prices: &[f64], period: usize) -> Option<f64> {
-    if prices.len() < period { return None; }
-    let sum: f64 = prices.iter().rev().take(period).sum();
-    Some(sum / period as f64)
-}
-
-fn calculate_ema(prices: &[f64], period: usize) -> Option<f64> {
-    if prices.len() < period { return None; }
-    let k = 2.0 / (period as f64 + 1.0);
-    let mut ema = calculate_sma(&prices[0..period], period)?;
-    for price in prices.iter().skip(period) {
-        ema = price * k + ema * (1.0 - k);
-    }
-    Some(ema)
-}
-
-fn calculate_rsi(prices: &[f64], period: usize) -> Option<f64> {
-    if prices.len() <= period { return None; }
-    let mut gains = 0.0;
-    let mut losses = 0.0;
-
-    for i in 1..=period {
-        let diff = prices[i] - prices[i-1];
-        if diff >= 0.0 { gains += diff; } else { losses -= diff; }
-    }
-
-    let mut avg_gain = gains / period as f64;
-    let mut avg_loss = losses / period as f64;
-
-    for i in (period + 1)..prices.len() {
-        let diff = prices[i] - prices[i-1];
-        let (g, l) = if diff >= 0.0 { (diff, 0.0) } else { (0.0, -diff) };
-        avg_gain = (avg_gain * (period as f64 - 1.0) + g) / period as f64;
-        avg_loss = (avg_loss * (period as f64 - 1.0) + l) / period as f64;
-    }
-
-    if avg_loss == 0.0 { return Some(100.0); }
-    let rs = avg_gain / avg_loss;
-    Some(100.0 - (100.0 / (1.0 + rs)))
-}
-
-fn calculate_macd(prices: &[f64]) -> Option<(f64, f64, f64)> {
-    if prices.len() < 35 { return None; } // Need enough data for 12/26/9
-    
-    // Calculate 12 and 26 EMA for the whole series to get MACD line
-    let mut macd_line_series = Vec::new();
-    let k12 = 2.0 / 13.0;
-    let k26 = 2.0 / 27.0;
-    
-    let mut ema12 = calculate_sma(&prices[0..12], 12)?;
-    let mut ema26 = calculate_sma(&prices[0..26], 26)?;
-    
-    for (i, &price) in prices.iter().enumerate() {
-        if i >= 12 { ema12 = price * k12 + ema12 * (1.0 - k12); }
-        if i >= 26 { 
-            ema26 = price * k26 + ema26 * (1.0 - k26);
-            macd_line_series.push(ema12 - ema26);
-        }
-    }
-
-    if macd_line_series.len() < 9 { return None; }
-    
-    // Calculate Signal Line (9 EMA of MACD Line)
-    let k9 = 2.0 / 10.0;
-    let mut signal_line = calculate_sma(&macd_line_series[0..9], 9)?;
-    for value in macd_line_series.iter().skip(9) {
-        signal_line = value * k9 + signal_line * (1.0 - k9);
-    }
-    
-    let current_macd = *macd_line_series.last()?;
-    Some((current_macd, signal_line, current_macd - signal_line))
-}
-
-fn calculate_atr(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Option<f64> {
-    if closes.len() <= period { return None; }
-    
-    let mut trs = Vec::new();
-    for i in 1..closes.len() {
-        let h_l = highs[i] - lows[i];
-        let h_pc = (highs[i] - closes[i-1]).abs();
-        let l_pc = (lows[i] - closes[i-1]).abs();
-        trs.push(h_l.max(h_pc).max(l_pc));
-    }
-    
-    calculate_sma(&trs, period)
-}
-
-fn calculate_adx(highs: &[f64], lows: &[f64], closes: &[f64], period: usize) -> Option<f64> {
-    if closes.len() <= period * 2 { return None; }
-    
-    let mut trs = Vec::new();
-    let mut plus_dm = Vec::new();
-    let mut minus_dm = Vec::new();
-    
-    for i in 1..closes.len() {
-        let tr = (highs[i] - lows[i]).max((highs[i] - closes[i-1]).abs()).max((lows[i] - closes[i-1]).abs());
-        trs.push(tr);
-        
-        let up_move = highs[i] - highs[i-1];
-        let down_move = lows[i-1] - lows[i];
-        
-        if up_move > down_move && up_move > 0.0 { plus_dm.push(up_move); } else { plus_dm.push(0.0); }
-        if down_move > up_move && down_move > 0.0 { minus_dm.push(down_move); } else { minus_dm.push(0.0); }
-    }
-    
-    let mut smooth_tr = trs.iter().take(period).sum::<f64>();
-    let mut smooth_plus = plus_dm.iter().take(period).sum::<f64>();
-    let mut smooth_minus = minus_dm.iter().take(period).sum::<f64>();
-    
-    let mut dx_series = Vec::new();
-    
-    for i in period..trs.len() {
-        smooth_tr = smooth_tr - (smooth_tr / period as f64) + trs[i];
-        smooth_plus = smooth_plus - (smooth_plus / period as f64) + plus_dm[i];
-        smooth_minus = smooth_minus - (smooth_minus / period as f64) + minus_dm[i];
-        
-        let di_plus = 100.0 * (smooth_plus / smooth_tr);
-        let di_minus = 100.0 * (smooth_minus / smooth_tr);
-        let dx = 100.0 * (di_plus - di_minus).abs() / (di_plus + di_minus);
-        dx_series.push(dx);
-    }
-    
-    calculate_sma(&dx_series, period)
-}
-
-fn calculate_bollinger_bands(prices: &[f64], period: usize, std_dev_mult: f64) -> Option<(f64, f64, f64, f64)> {
-    if prices.len() < period { return None; }
-    
-    let sma = calculate_sma(prices, period)?;
-    let variance: f64 = prices.iter().rev().take(period).map(|&p| (p - sma).powi(2)).sum::<f64>() / period as f64;
-    let std_dev = variance.sqrt();
-    
-    let upper = sma + (std_dev_mult * std_dev);
-    let lower = sma - (std_dev_mult * std_dev);
-    let bandwidth = if sma != 0.0 { (upper - lower) / sma } else { 0.0 };
-    
-    Some((sma, upper, lower, bandwidth))
-}
-
-fn load_strategy_hint(agent_id: &str) -> String {
-    let hive_base = std::env::var("AWP_HIVE_BASE")
-        .unwrap_or_else(|_| "/home/losbanditos/_code/awp-agents-project/agents".to_string());
-
-    let hint_path = PathBuf::from(hive_base)
-        .join(agent_id)
-        .join("home")
-        .join("strategy_hint.md");
-
-    match std::fs::read_to_string(&hint_path) {
-        Ok(content) if !content.trim().is_empty() => {
-            log_info!("loop: loaded strategy_hint.md for {} ({} chars)", agent_id, content.len());
-            content
-        }
-        _ => {
-            log_warn!("hint: strategy_hint.md not found or empty for {}", agent_id);
-            format!(
-                "# Strategy Hint\n\nNo recent performance data available for {}. Using default sizing.\n",
-                agent_id
-            )
-        }
     }
 }

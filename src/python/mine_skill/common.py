@@ -237,12 +237,8 @@ def resolve_signature_config(*, force_refresh: bool = False) -> dict[str, Any]:
     if force_refresh or not cached or not cache_matches_target or not cache_is_fresh:
         try:
             fetched = _fetch_signature_config_from_platform(base_url)
-        except RuntimeError as e:
-            if not cached or not cache_matches_target:
-                raise RuntimeError(f"Critical: Failed to fetch signature config and no cache available. Mining cannot start safely. Error: {e}")
-            logging.getLogger("common").error(f"Failed to refresh signature config: {e}. Using STALE cache as last resort.")
+        except RuntimeError:
             fetched = None
-            
         if fetched is not None:
             _persist_signature_config(fetched)
             resolved = fetched
@@ -446,8 +442,6 @@ def resolve_awp_registration(*, auto_register: bool = False, signer: Any | None 
             result["status"] = "signer_error"
             result["message"] = f"signer.get_address() failed: {exc}"
             return result
-    elif os.environ.get("AWP_ADDRESS"):
-        wallet_address = os.environ.get("AWP_ADDRESS")
     else:
         wallet_bin, wallet_token = resolve_wallet_config()
         if not (Path(wallet_bin).exists() or shutil.which(wallet_bin)):
@@ -576,8 +570,7 @@ def resolve_runtime_readiness() -> dict[str, Any]:
     - warnings: list[str] - actionable warnings (expiry, fallback config, etc.)
     """
     wallet_bin = resolve_wallet_bin()
-    has_direct_creds = bool("AWP_PRIVATE_KEY" in os.environ and "AWP_ADDRESS" in os.environ)
-    wallet_found = bool(shutil.which(wallet_bin) or Path(wallet_bin).exists()) or has_direct_creds
+    wallet_found = bool(shutil.which(wallet_bin) or Path(wallet_bin).exists())
     _wallet_bin, wallet_token = resolve_wallet_config()
     signature_config = resolve_signature_config()
     signature_origin = str(signature_config.get("origin") or signature_config.get("source") or "fallback")
@@ -599,10 +592,9 @@ def resolve_runtime_readiness() -> dict[str, Any]:
     if expires_at_raw.isdigit():
         session_expiry_seconds = int(expires_at_raw) - int(time.time())
 
-    wallet_session_ready = bool(wallet_token.strip()) or has_direct_creds
+    wallet_session_ready = bool(wallet_token.strip())
 
-    if session_expiry_seconds is not None and session_expiry_seconds <= 0 and wallet_found and not has_direct_creds:
-
+    if session_expiry_seconds is not None and session_expiry_seconds <= 0 and wallet_found:
         renewed_token = _try_auto_renew_session(wallet_bin)
         if renewed_token:
             wallet_token = renewed_token
@@ -767,36 +759,20 @@ def _load_persisted_wallet_session() -> tuple[str, int | None]:
 
 
 def _run_wallet_json(wallet_bin: str, *args: str) -> dict[str, Any]:
-    """Runs awp-wallet and returns JSON, with retry logic for robustness."""
-    max_attempts = 3
-    last_error = None
-    
-    for attempt in range(max_attempts):
-        try:
-            result = subprocess.run(
-                [wallet_bin, *args],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env=_wallet_command_env(),
-            )
-            if result.returncode != 0:
-                stderr = result.stderr.strip() or result.stdout.strip()
-                raise RuntimeError(stderr or f"awp-wallet {' '.join(args)} failed")
-            
-            return json.loads(result.stdout)
-            
-        except (RuntimeError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
-            last_error = exc
-            if attempt < max_attempts - 1:
-                wait_time = (attempt + 1) * 2 # 2s, 4s backoff
-                logging.getLogger("common").warning(
-                    f"awp-wallet {' '.join(args)} failed (attempt {attempt+1}/{max_attempts}): {exc}. Retrying in {wait_time}s..."
-                )
-                time.sleep(wait_time)
-            continue
-            
-    raise RuntimeError(f"awp-wallet {' '.join(args)} failed after {max_attempts} attempts: {last_error}")
+    result = subprocess.run(
+        [wallet_bin, *args],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=_wallet_command_env(),
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(stderr or f"awp-wallet {' '.join(args)} failed")
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"awp-wallet returned non-JSON output for {' '.join(args)}") from exc
 
 
 def _try_auto_renew_session(wallet_bin: str) -> str:
@@ -916,7 +892,7 @@ def resolve_eval_timeout() -> int:
     return DEFAULT_EVAL_TIMEOUT
 
 def resolve_credit_interval(credit_tier: str) -> int:
-    return CREDIT_TIER_INTERVALS.get(credit_tier.lower(), CREDIT_TIER_INTERVALS["probation"])
+    return CREDIT_TIER_INTERVALS.get(credit_tier.lower(), CREDIT_TIER_INTERVALS["novice"])
 
 def resolve_ws_url() -> str:
     base = resolve_platform_base_url()

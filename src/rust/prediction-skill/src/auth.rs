@@ -29,7 +29,7 @@ pub fn build_auth_headers(
     path: &str,
     body: &[u8],
 ) -> Result<AuthHeaders> {
-    let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
 
     // Compute SHA-256 hash of body (matches server's body_hash computation)
     use sha2::{Digest as Sha2Digest, Sha256};

@@ -1,9 +1,0 @@
-{
-  "dataset_id": "ds_arxiv",
-  "url": "https://arxiv.org/abs/2604.13151",
-  "normalized_url": "https://arxiv.org/abs/2604.13151",
-  "occupied": true,
-  "submission_id": "sub_aaea0f7f-3c65-4b55-9546-e60254aee7d9",
-  "miner_id": "0xf1368b99b8f4974e21d0f6044450e3b003f2f5ca",
-  "status": "pending"
-}

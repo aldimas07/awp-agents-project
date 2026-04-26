@@ -3,3 +3,13 @@ beautifulsoup4
 httpx
 python-dotenv
 eth-account
+pydantic
+typer
+rich
+crawl4ai
+lxml
+markdownify
+PyMuPDF
+pymupdf4llm
+pycryptodome
+websockets

@@ -13,7 +13,7 @@ RUN_MINE_TOOL_SCRIPT="$PROJECT_ROOT/scripts/run_mine_tool.py"
 PREDICTION_TRACKER_WRAPPER="$PROJECT_ROOT/src/python/prediction_tracker/agent_wrapper.sh"
 
 # Ensure user's local bin is in PATH (important for awp-wallet, predict-agent)
-export PATH="/home/losbanditos/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 
 # Ensure predict-agent binary is in PATH or accessible.
 # It should be installed to ~/.local/bin/predict-agent by setup.sh.
@@ -93,10 +93,15 @@ function start_agent() {
     # --- Start Mine WorkNet (if enabled) ---
     if [ "$enable_miner" = "true" ]; then
         echo "[Hive] Starting Mine WorkNet for $name..."
-        # run_mine_tool.py expects PROJECT_ROOT as cwd
-        nohup "$PYTHON_VENV_PYTHON" "$RUN_MINE_TOOL_SCRIPT" agent-start > "$agent_dir/logs/mine.log" 2>&1 &
-        echo $! > "$PIDS_DIR/$name-mine.pid"
-        echo "[Hive] Miner for $name started with PID $(cat "$PIDS_DIR/$name-mine.pid")."
+        "$PYTHON_VENV_PYTHON" "$RUN_MINE_TOOL_SCRIPT" agent-start > /dev/null 2>&1
+        sleep 1
+        local mine_pid=$(jq -r '.pid' "$agent_dir/state/background_session.json" 2>/dev/null)
+        if [ "$mine_pid" != "null" ] && [ -n "$mine_pid" ]; then
+            echo "$mine_pid" > "$PIDS_DIR/$name-mine.pid"
+            echo "[Hive] Miner for $name started with PID $mine_pid."
+        else
+            echo "[Hive] Failed to get Miner PID for $name."
+        fi
     else
         echo "[Hive] Mine WorkNet for $name is DISABLED (ENABLE_MINER=false in .env)."
         # Ensure old PID file is removed if it exists

@@ -220,6 +220,9 @@ class AgentWorker:
         self._submit_stop = threading.Event()
         # Auto-updater — polls upstream every 10min, pulls + requests stop on update
         self._auto_updater: Any = None
+        # WS heartbeat skip counter — send HTTP heartbeat every 5th iteration
+        # when WS is connected to keep session state (credit_score, epoch etc.)
+        self._ws_heartbeat_skip = 0
 
         self._submit_stats_lock = threading.Lock()
         self._submit_stats = {"submitted": 0, "deferred": 0, "discarded": 0}
@@ -744,18 +747,37 @@ class AgentWorker:
 
     def _send_heartbeats(self, summary: WorkerIterationSummary) -> None:
         self._ensure_wallet_session(summary)
-        try:
-            unified = self.client.send_unified_heartbeat(client_name=self.config.client_name)
-            summary.unified_heartbeat_sent = True
-            self._update_session_from_heartbeat(unified)
-        except Exception as exc:
-            summary.errors.append(f"unified heartbeat failed: {exc}")
-        try:
-            self.client.send_miner_heartbeat(client_name=self.config.client_name)
+        # WS 连接时跳过 HTTP 心跳请求（WS 维持在线），但仍然执行
+        # ready pool 维护和 wallet refresh 等非心跳逻辑。
+        ws_connected = (
+            self.ws_source is not None
+            and hasattr(self.ws_source, "ws_client")
+            and getattr(self.ws_source.ws_client, "connected", False)
+        )
+        # WS 连接时降频发心跳（每 5 轮发一次），保持 credit/epoch 等状态更新
+        send_hb = True
+        if ws_connected:
+            self._ws_heartbeat_skip += 1
+            send_hb = self._ws_heartbeat_skip >= 5
+            if send_hb:
+                self._ws_heartbeat_skip = 0
+        else:
+            self._ws_heartbeat_skip = 0
+        if send_hb:
+            try:
+                unified = self.client.send_unified_heartbeat(client_name=self.config.client_name)
+                summary.unified_heartbeat_sent = True
+                self._update_session_from_heartbeat(unified)
+            except Exception as exc:
+                summary.errors.append(f"unified heartbeat failed: {exc}")
+            try:
+                self.client.send_miner_heartbeat(client_name=self.config.client_name)
+                summary.heartbeat_sent = True
+                self.state_store.save_session({"last_heartbeat_at": int(time.time())})
+            except Exception as exc:
+                summary.errors.append(f"miner heartbeat failed: {exc}")
+        else:
             summary.heartbeat_sent = True
-            self.state_store.save_session({"last_heartbeat_at": int(time.time())})
-        except Exception as exc:
-            summary.errors.append(f"miner heartbeat failed: {exc}")
         # Join miner ready pool (with backoff on persistent failure)
         pool_failures = getattr(self, "_pool_join_failures", 0)
         if not getattr(self, "_miner_ready_pool_joined", False) and pool_failures < 10:
@@ -813,23 +835,28 @@ class AgentWorker:
 
     def _stop_auto_updater(self) -> None:
         if self._auto_updater is not None:
-            self._auto_updater.stop()
+            try:
+                self._auto_updater.stop()
+            except Exception:
+                pass  # Safe to ignore — daemon thread dies with process
 
     def _on_auto_update_applied(self) -> None:
         """Called by AutoUpdater after a successful fast-forward pull.
 
-        Marks mining_state=stopped so the next iteration exits cleanly.
-        The host supervisor's next agent-start call will launch with the
-        new code.
+        Calls stop() directly to shut down all threads (submit, repeat_crawl,
+        WS) cleanly — same approach as ValidatorRuntime. Merely setting
+        mining_state=stopped was insufficient because it only takes effect
+        at the next iteration boundary, leaving old code running.
         """
         log = logging.getLogger("agent.auto_update")
-        log.info("Marking mining_state=stopped for restart with new code")
+        log.info("Auto-update applied — stopping worker for restart")
         self.state_store.save_session({
             "mining_state": "stopped",
             "stop_reason": "auto_update",
             "last_control_action": "auto-update",
             "last_state_change_at": int(time.time()),
         })
+        self.stop()
 
     def _persist_remaining_queue(self) -> None:
         """Persist any items remaining in the submit queue to disk.
@@ -1167,7 +1194,9 @@ class AgentWorker:
                 except SkipItemError as exc:
                     summary.skipped_items += 1
                     summary.messages.append(f"skipped {item.item_id}: {exc}")
-                    self._handle_item_failure(item, "crawl_timeout", summary)
+                    # Extract actual reason from SkipItemError message
+                    reason = "occupancy_blocked" if "occupancy_blocked" in str(exc) else "crawl_timeout"
+                    self._handle_item_failure(item, reason, summary)
                     continue
                 except Exception as exc:
                     summary.errors.append(f"{item.item_id}: {exc}")
@@ -1218,7 +1247,8 @@ class AgentWorker:
                     if isinstance(result, SkipItemError):
                         summary.skipped_items += 1
                         summary.messages.append(f"skipped {item.item_id}: {result}")
-                        self._handle_item_failure(item, "crawl_timeout", summary)
+                        reason = "occupancy_blocked" if "occupancy_blocked" in str(result) else "crawl_timeout"
+                        self._handle_item_failure(item, reason, summary)
                     elif isinstance(result, Exception):
                         summary.errors.append(f"{item.item_id}: {result}")
                         self._handle_item_failure(item, "crawl_failed", summary)
@@ -1427,18 +1457,54 @@ class AgentWorker:
         except Exception as exc:
             log.error("report repeat_crawl failure failed: %s", exc)
 
+    # Discovery items 最多重试 3 次后丢弃——防止坏 URL（502/timeout）
+    # 反复进 backlog 占住 max_parallel 槽位，挤掉新 discovery。
+    _MAX_ITEM_RETRIES = 3
+
+    # 不可恢复的失败——永远不重试，立即丢弃
+    _NON_RETRYABLE_REASONS = frozenset({
+        "occupancy_blocked",  # URL 被其他 miner 占用，epoch 内不会释放
+    })
+
     def _handle_item_failure(
         self,
         item: WorkItem,
         fail_reason: str,
         summary: WorkerIterationSummary,
     ) -> None:
-        """Route a failed item: repeat_crawl → report to platform, others → re-queue."""
+        """Route a failed item: repeat_crawl → report to platform, others → re-queue with retry limit."""
         if item.claim_task_id and item.claim_task_type == "repeat_crawl":
             self._report_repeat_crawl_failure(item, fail_reason)
             summary.messages.append(f"repeat_crawl {item.claim_task_id} failed ({fail_reason})")
-        else:
-            self.state_store.enqueue_backlog([_clone_item(item, resume=True)])
+            return
+        # Non-retryable failures — discard immediately, don't waste slots
+        if fail_reason in self._NON_RETRYABLE_REASONS:
+            summary.messages.append(f"discarded {item.item_id}: {fail_reason} (non-retryable)")
+            return
+        # Track retry count in metadata to prevent infinite re-queue loops
+        retries = int(item.metadata.get("_retries", 0)) + 1
+        if retries > self._MAX_ITEM_RETRIES:
+            summary.messages.append(
+                f"discarded {item.item_id} after {retries - 1} retries ({fail_reason})"
+            )
+            return
+        cloned = _clone_item(item, resume=True)
+        updated = WorkItem(
+            item_id=cloned.item_id,
+            source=cloned.source,
+            url=cloned.url,
+            dataset_id=cloned.dataset_id,
+            platform=cloned.platform,
+            resource_type=cloned.resource_type,
+            record=cloned.record,
+            crawler_command=cloned.crawler_command,
+            claim_task_id=cloned.claim_task_id,
+            claim_task_type=cloned.claim_task_type,
+            metadata={**cloned.metadata, "_retries": retries},
+            resume=cloned.resume,
+            output_dir=cloned.output_dir,
+        )
+        self.state_store.enqueue_backlog([updated])
 
     def _handle_preflight_common(self, item: WorkItem, writer: RunArtifactWriter | None, *, command: str) -> str | None:
         """Pre-submission check: URL occupancy via public GET endpoint (no auth needed).
@@ -1665,10 +1731,10 @@ class AgentWorker:
         with self._submit_stats_lock:
             submitted_now = self._submit_stats.get("submitted", 0)
             discarded_now = self._submit_stats.get("discarded", 0)
-        submitted_delta = submitted_now - self._submit_stats_baseline["submitted"]
-        discarded_delta = discarded_now - self._submit_stats_baseline["discarded"]
-        self._submit_stats_baseline["submitted"] = submitted_now
-        self._submit_stats_baseline["discarded"] = discarded_now
+            submitted_delta = submitted_now - self._submit_stats_baseline["submitted"]
+            discarded_delta = discarded_now - self._submit_stats_baseline["discarded"]
+            self._submit_stats_baseline["submitted"] = submitted_now
+            self._submit_stats_baseline["discarded"] = discarded_now
         if submitted_delta > 0:
             summary.submitted_items += submitted_delta
         if discarded_delta > 0:
@@ -1813,7 +1879,6 @@ class AgentWorker:
 
 def build_worker_from_env(*, auto_register_awp: bool = False) -> AgentWorker:
     from signer import WalletSigner
-    from pk_signer import PrivateKeySigner
 
     output_root = Path(os.environ.get("CRAWLER_OUTPUT_ROOT", str(CRAWLER_ROOT / "output" / "agent-runs"))).resolve()
     # Prefer the current interpreter so the child process does not use a bare `python` outside the venv on Windows.
@@ -1851,10 +1916,8 @@ def build_worker_from_env(*, auto_register_awp: bool = False) -> AgentWorker:
         registration = resolve_awp_registration(auto_register=True)
         if registration.get("registration_required"):
             raise RuntimeError(str(registration.get("message") or "wallet registration required before startup"))
-    signer: Any = None
-    if os.environ.get("AWP_PRIVATE_KEY"):
-        signer = PrivateKeySigner(os.environ.get("AWP_PRIVATE_KEY"))
-    elif wallet_token.strip():
+    signer: WalletSigner | None = None
+    if wallet_token.strip():
         signer = WalletSigner(wallet_bin=wallet_bin, session_token=wallet_token)
 
     client = PlatformClient(

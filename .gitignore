@@ -26,3 +26,16 @@ thumbs.db
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Runtime output artifacts
+output/
+src/python/output/
+
+# Upstream skill repos (cloned separately)
+awp-skill/
+
+# Scratch/debug scripts
+scratch/
+
+# Stale backups
+*_old*/

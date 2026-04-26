@@ -1,17 +1,18 @@
 import os
 import pandas as pd
+import argparse
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CSV_FILE = PROJECT_ROOT / "data" / "predictions.csv"
 HIVE_AGENTS_BASE_DIR = PROJECT_ROOT / "agents"
 
-# Window settings (tuned untuk stabilitas)
-SHORT_TERM = 8      # Untuk visual sequence + streak
-LONG_TERM = 40      # Untuk Kelly & win-rate (lebih stabil)
+# Window settings
+SHORT_TERM = 8      # For visual sequence + streak
+LONG_TERM = 40      # For Kelly & win-rate
 
 def get_payout_column(df):
-    """Robust column detection untuk payout"""
+    """Robust column detection for payout"""
     candidates = ['payout_chips', 'payout', 'reward', 'total_payout']
     for col in candidates:
         if col in df.columns:
@@ -19,106 +20,117 @@ def get_payout_column(df):
     return None
 
 def get_ticket_column(df):
-    """Robust column detection untuk tickets/spent"""
+    """Robust column detection for tickets/spent"""
     candidates = ['tickets', 'chips_spent', 'ticket_size', 'size']
     for col in candidates:
         if col in df.columns:
             return col
     return None
 
+def get_agent_persona(agent_id):
+    """Returns a specific persona for known agents, or a default one."""
+    personas = {
+        "agent-13": "Skeptical Technical Analyst. Focus on volume exhaustion and fakeouts.",
+        "agent-26": "Aggressive Trend Follower. Focus on breakout strength and ADX momentum.",
+        "agent-32": "Orderbook Specialist. Focus on bid/ask imbalance and liquidity gaps.",
+        "agent-37": "Skeptical Technical Analyst. Focus on volume exhaustion and fakeouts.",
+    }
+    return personas.get(agent_id, "Senior Quantitative Lead. Focus on technical indicators and raw numbers.")
+
 def generate_hint(agent_id):
     try:
-        df = pd.read_csv(CSV_FILE).tail(1000)  # lebih aman dari 500
-        if 'agent_id' not in df.columns or df.empty:
-            return "# Strategy Hint\n\nPredictions log is empty or invalid.\n"
-
-        df = df.sort_values(by='timestamp', ascending=False)
-        agent_df = df[df['agent_id'] == agent_id]
-
-        if agent_df.empty:
-            return "# Strategy Hint\n\nNo recent prediction data available for this agent.\n"
-
-        hint_lines = ["# Strategy Hint (Super-Quant Performance)\n"]
-
-        # ==================== SHORT-TERM (visual + streak) ====================
-        recent = agent_df.head(SHORT_TERM)
-        last_results = []
-        win_streak = 0
-        loss_streak = 0
-        rejection_count = 0
-
-        for _, row in recent.iterrows():
-            status = str(row.get('submission_status', '')).lower()
-            if "rejected" in status:
-                last_results.append("❌")
-                rejection_count += 1
-                loss_streak += 1
-                win_streak = 0
-            elif status in ["filled", "partial"]:
-                last_results.append("✅")
-                win_streak += 1
-                loss_streak = 0
-            else:
-                last_results.append("⏳")
+        hint_lines = ["# Strategy Hint (Super-Quant Performance)\n\n"]
         
-        # Reverse biar Left=Oldest, Right=Newest
-        hint_lines.append(f"- Recent Outcomes: {' '.join(reversed(last_results))} (Last {SHORT_TERM} trades)\n")
-        hint_lines.append(f"- Current Streak: **{win_streak}W** / **{loss_streak}L**\n")
+        persona = get_agent_persona(agent_id)
+        hint_lines.append(f"**DIRECTIVE:**\n")
+        hint_lines.append(f"- **ACTIVE PERSONA:** {persona}\n")
+        
+        if os.path.exists(CSV_FILE):
+            df = pd.read_csv(CSV_FILE).tail(1000)
+            if 'agent_id' in df.columns and not df.empty:
+                df = df.sort_values(by='timestamp', ascending=False)
+                agent_df = df[df['agent_id'] == agent_id]
 
-        if rejection_count >= 2:
-            hint_lines.append("> [!WARNING] Reasoning kamu sering REJECTED. Ubah gaya analisis sekarang juga!\n\n")
+                if not agent_df.empty:
+                    # ==================== SHORT-TERM ====================
+                    recent = agent_df.head(SHORT_TERM)
+                    last_results = []
+                    win_streak = 0
+                    loss_streak = 0
+                    rejection_count = 0
 
-        # ==================== LONG-TERM KELLY (per-agent) ====================
-        long_term_df = agent_df.head(LONG_TERM)
-        filled = long_term_df[long_term_df['submission_status'].isin(['filled', 'partial'])]
+                    for _, row in recent.iterrows():
+                        status = str(row.get('submission_status', '')).lower()
+                        if "error" in status or "rejected" in status:
+                            last_results.append("❌")
+                            rejection_count += 1
+                            loss_streak += 1
+                            win_streak = 0
+                        elif status in ["filled", "partial", "open"]:
+                            last_results.append("✅")
+                            win_streak += 1
+                            loss_streak = 0
+                        else:
+                            last_results.append("⏳")
+                    
+                    hint_lines.append(f"- Recent Outcomes: {' '.join(reversed(last_results))} (Last {SHORT_TERM} trades)\n")
+                    hint_lines.append(f"- Current Streak: **{win_streak}W** / **{loss_streak}L**\n")
 
-        payout_col = get_payout_column(df)
-        ticket_col = get_ticket_column(df)
+                    # ==================== LONG-TERM KELLY ====================
+                    long_term_df = agent_df.head(LONG_TERM)
+                    filled = long_term_df[long_term_df['submission_status'].isin(['filled', 'partial'])]
 
-        if filled.empty or not payout_col or not ticket_col:
-            r_ratio = 1.4
-            win_rate = 0.5
-        else:
-            wins = filled[filled['won'] == True]
-            losses = filled[filled['won'] == False]
+                    payout_col = get_payout_column(df)
+                    ticket_col = get_ticket_column(df)
 
-            avg_win_profit = (wins[payout_col] - wins[ticket_col]).mean() if not wins.empty else 0
-            avg_loss = losses[ticket_col].mean() if not losses.empty else 100
+                    if not filled.empty and payout_col and ticket_col:
+                        wins = filled[filled['won'] == True]
+                        losses = filled[filled['won'] == False]
 
-            realized_rr = avg_win_profit / avg_loss if avg_loss > 0 else 1.4
-            r_ratio = max(0.8, min(realized_rr, 2.5))
+                        avg_win_profit = (wins[payout_col] - wins[ticket_col]).mean() if not wins.empty else 0
+                        avg_loss = losses[ticket_col].mean() if not losses.empty else 100
 
-            win_rate = filled['won'].mean() if not filled.empty else 0.5
+                        realized_rr = avg_win_profit / avg_loss if avg_loss > 0 else 1.4
+                        r_ratio = max(0.8, min(realized_rr, 2.5))
+                        win_rate = filled['won'].mean()
+                    else:
+                        r_ratio = 1.4
+                        win_rate = 0.5
 
-        # Kelly formula
-        kelly_pct = win_rate - ((1 - win_rate) / r_ratio) if r_ratio > 0 else 0
-        kelly_pct = max(0, min(kelly_pct, 0.40))          # cap 40%
-        safe_kelly = kelly_pct * 0.5                      # 0.5x Fractional Kelly
+                    kelly_pct = win_rate - ((1 - win_rate) / r_ratio) if r_ratio > 0 else 0
+                    kelly_pct = max(0, min(kelly_pct, 0.40))
+                    safe_kelly = kelly_pct * 0.5
 
-        # Drawdown protection
-        if loss_streak >= 3 or win_rate < 0.30:
-            safe_kelly = 0.05
-            hint_lines.append(f"- **DRAWDOWN PROTECTION ACTIVE** → Size locked at 5%\n")
+                    if loss_streak >= 3 or win_rate < 0.30:
+                        safe_kelly = 0.05
+                        hint_lines.append(f"- **DRAWDOWN PROTECTION ACTIVE** → Size locked at 5%\n")
 
-        hint_lines.append(f"- Strategy Performance: **{win_rate*100:.1f}% Win Rate** | Realized R/R: **{r_ratio:.2f}** | Streak: {win_streak}W/{loss_streak}L\n")
-        hint_lines.append(f"- Kelly Recommended Size: **{safe_kelly*100:.1f}% of balance** (Adaptive + Safe)\n")
+                    hint_lines.append(f"- Kelly Recommended Size: **{safe_kelly*100:.1f}% of balance**\n")
 
-        # ==================== DIRECTIVE (Compressed for Tokens) ====================
-        hint_lines.append("\n**DIRECTIVE:**\n")
         hint_lines.append("- Output valid JSON starting with `DECISION: `.\n")
-        hint_lines.append("- For `reasoning` (80-300 chars): act like a chaotic crypto day trader (slang, informal, no bullet points, one paragraph).\n")
-        hint_lines.append("- Mention 1+ metrics (e.g. 'macd dead') human/messy style.\n")
-        hint_lines.append("- Use tickets size exactly as recommended below.\n")
+        hint_lines.append("- **JSON FORMAT**: You MUST use DOUBLE QUOTES (`\"`) for all keys and string values. Single quotes (`'`) are INVALID in JSON.\n")
+        hint_lines.append("- The `reasoning` field must be a DOUBLE QUOTED string value. Include the challenge answer INSIDE this string at the very end.\n")
+        hint_lines.append("- For `reasoning`: Describe specific price action, indicators, and volume trends in detail. **Hard minimum: 255 characters**.\n")
+        hint_lines.append("- **ANTI-BOT PROTOCOL**: Avoid 'Based on', 'I believe', 'Therefore', 'Furthermore'. Just spit raw data and conviction.\n")
+        hint_lines.append("- **CHALLENGE COMPLIANCE**: ALWAYS end your `reasoning` string (INSIDE the JSON) with 'Challenge: <number>' on a new line, replacing <number> with the correct value.\n")
+        hint_lines.append("- Decide an appropriate ticket size autonomously based on your analysis.\n")
 
         return "".join(hint_lines)
 
-    except FileNotFoundError:
-        return f"# Strategy Hint\n\nError: {CSV_FILE} not found.\n"
     except Exception as e:
         return f"# Strategy Hint\n\nError generating hint: {e}\n"
 
 def main():
-    agent_ids = [f"agent-0{i}" for i in range(1, 7)]
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--agent", type=str, help="Agent ID (e.g. agent-13)")
+    args = parser.parse_args()
+
+    if args.agent:
+        agent_ids = [args.agent]
+    else:
+        # Default to agents 13, 26, 32, 37 if no agent specified (the active fleet)
+        agent_ids = ["agent-13", "agent-26", "agent-32", "agent-37"]
+
     for agent_id in agent_ids:
         hint_content = generate_hint(agent_id)
         hint_dir = HIVE_AGENTS_BASE_DIR / agent_id / "home"

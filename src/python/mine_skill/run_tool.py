@@ -10,6 +10,18 @@ import time
 from pathlib import Path
 from typing import Any
 
+from common import (
+    DEFAULT_MINER_ID,
+    DEFAULT_PLATFORM_BASE_URL,
+    WALLET_SESSION_DURATION_SECONDS,
+    resolve_local_venv_python,
+    resolve_miner_id,
+    resolve_platform_base_url,
+    resolve_wallet_bin,
+    resolve_wallet_config,
+)
+from install_guidance import awp_wallet_install_steps
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_ROOT = SCRIPT_DIR.parent
 
@@ -23,18 +35,6 @@ def inject_skill_root() -> Path:
 
 
 inject_skill_root()
-
-from common import (
-    DEFAULT_MINER_ID,
-    DEFAULT_PLATFORM_BASE_URL,
-    WALLET_SESSION_DURATION_SECONDS,
-    resolve_local_venv_python,
-    resolve_miner_id,
-    resolve_platform_base_url,
-    resolve_wallet_bin,
-    resolve_wallet_config,
-)
-from install_guidance import awp_wallet_install_steps
 
 
 def _ensure_local_venv_python() -> None:
@@ -436,7 +436,7 @@ def run_browser_session(platform: str, output_path: str = "") -> str:
             login_url=session.login_url,
             session_path=str(final_session_path),
             cleanup_performed=session.cleanup_performed,
-            status_command=f"python scripts/run_mine_tool.py browser-session-status {normalized_platform}",
+            status_command=f"python scripts/run_tool.py browser-session-status {normalized_platform}",
             extra_internal={
                 "requires_user_action": session.requires_user_action,
                 "started_by_bridge": session.started_by_bridge,
@@ -468,7 +468,7 @@ def run_browser_session(platform: str, output_path: str = "") -> str:
         waiter_pid=waiter_pid,
         waiter_running=True,
         cleanup_performed=False,
-        status_command=f"python scripts/run_mine_tool.py browser-session-status {normalized_platform}",
+        status_command=f"python scripts/run_tool.py browser-session-status {normalized_platform}",
         extra_internal={
             "requires_user_action": True,
         },
@@ -549,7 +549,7 @@ def run_browser_session_status(platform: str) -> str:
             state="idle",
             user_message="No browser session job is active.",
             user_actions=["Start browser session"],
-            status_command=f"python scripts/run_mine_tool.py browser-session-status {normalized_platform}",
+            status_command=f"python scripts/run_tool.py browser-session-status {normalized_platform}",
         )
 
     waiter_running = _browser_waiter_running(payload) if payload.get("state") == "awaiting_user_action" else False
@@ -572,7 +572,7 @@ def run_browser_session_status(platform: str) -> str:
         cleanup_performed=bool(payload.get("cleanup_performed", False)),
         error=str(payload.get("error", "")),
         retryable=bool(payload.get("retryable", False)),
-        status_command=f"python scripts/run_mine_tool.py browser-session-status {normalized_platform}",
+        status_command=f"python scripts/run_tool.py browser-session-status {normalized_platform}",
     )
 
 
@@ -863,7 +863,7 @@ def run_doctor() -> str:
     # Determine next command based on unified readiness
     if readiness["can_start"]:
         result["status"] = "ok"
-        result["_internal"]["next_command"] = "python scripts/run_mine_tool.py agent-start"
+        result["_internal"]["next_command"] = "python scripts/run_tool.py agent-start"
     elif result["_internal"]["fix_commands"]:
         result["_internal"]["next_command"] = result["_internal"]["fix_commands"][0]
 
@@ -960,7 +960,7 @@ def render_agent_status() -> str:
                 "next_command": _bootstrap_command(),
                 "action_map": {
                     "Re-initialize": _bootstrap_command(),
-                    "Run diagnostics": "python scripts/run_mine_tool.py doctor",
+                    "Run diagnostics": "python scripts/run_tool.py doctor",
                 },
             },
         }, ensure_ascii=False, indent=2)
@@ -973,11 +973,11 @@ def render_agent_status() -> str:
             "user_message": f"Mining is running in the background (session: {session_id}).",
             "user_actions": ["Check status", "Pause mining", "Stop mining"],
             "_internal": {
-                "next_command": "python scripts/run_mine_tool.py agent-control status",
+                "next_command": "python scripts/run_tool.py agent-control status",
                 "action_map": {
-                    "Check status": "python scripts/run_mine_tool.py agent-control status",
-                    "Pause mining": "python scripts/run_mine_tool.py agent-control pause",
-                    "Stop mining": "python scripts/run_mine_tool.py agent-control stop",
+                    "Check status": "python scripts/run_tool.py agent-control status",
+                    "Pause mining": "python scripts/run_tool.py agent-control pause",
+                    "Stop mining": "python scripts/run_tool.py agent-control stop",
                 },
                 "session": background,
             },
@@ -1005,10 +1005,10 @@ def render_agent_status() -> str:
         "user_message": user_msg,
         "user_actions": ["Start mining", "Check status"],
         "_internal": {
-            "next_command": "python scripts/run_mine_tool.py agent-start",
+            "next_command": "python scripts/run_tool.py agent-start",
             "action_map": {
-                "Start mining": "python scripts/run_mine_tool.py agent-start",
-                "Check status": "python scripts/run_mine_tool.py agent-control status",
+                "Start mining": "python scripts/run_tool.py agent-start",
+                "Check status": "python scripts/run_tool.py agent-control status",
             },
         },
     }, ensure_ascii=False, indent=2)
@@ -1032,11 +1032,11 @@ def run_agent_start(dataset_arg: str = "") -> str:
             "user_message": f"Mining is already running in the background (session: {session_id}).",
             "user_actions": ["Check status", "Pause mining", "Stop mining"],
             "_internal": {
-                "next_command": "python scripts/run_mine_tool.py agent-control status",
+                "next_command": "python scripts/run_tool.py agent-control status",
                 "action_map": {
-                    "Check status": "python scripts/run_mine_tool.py agent-control status",
-                    "Pause mining": "python scripts/run_mine_tool.py agent-control pause",
-                    "Stop mining": "python scripts/run_mine_tool.py agent-control stop",
+                    "Check status": "python scripts/run_tool.py agent-control status",
+                    "Pause mining": "python scripts/run_tool.py agent-control pause",
+                    "Stop mining": "python scripts/run_tool.py agent-control stop",
                 },
                 "session": existing,
             },
@@ -1056,7 +1056,7 @@ def run_agent_start(dataset_arg: str = "") -> str:
                 "detail": str(exc),
                 "action_map": {
                     "Install AWP Skill": "Install the AWP Skill from the skill marketplace to complete on-chain registration",
-                    "Retry": "python scripts/run_mine_tool.py agent-start",
+                    "Retry": "python scripts/run_tool.py agent-start",
                 },
             },
         }, ensure_ascii=False, indent=2)
@@ -1078,7 +1078,7 @@ def run_agent_start(dataset_arg: str = "") -> str:
                     "http_status": 401,
                     "action_map": {
                         "Re-initialize": _bootstrap_command(),
-                        "Run diagnostics": "python scripts/run_mine_tool.py doctor",
+                        "Run diagnostics": "python scripts/run_tool.py doctor",
                     },
                 },
             }, ensure_ascii=False, indent=2)
@@ -1091,8 +1091,8 @@ def run_agent_start(dataset_arg: str = "") -> str:
                 "http_status": status,
                 "detail": str(exc)[:200],
                 "action_map": {
-                    "Retry": "python scripts/run_mine_tool.py agent-start",
-                    "Diagnose": "python scripts/run_mine_tool.py doctor",
+                    "Retry": "python scripts/run_tool.py agent-start",
+                    "Diagnose": "python scripts/run_tool.py doctor",
                 },
             },
         }, ensure_ascii=False, indent=2)
@@ -1105,8 +1105,8 @@ def run_agent_start(dataset_arg: str = "") -> str:
                 "error": "network_error",
                 "detail": str(exc)[:200],
                 "action_map": {
-                    "Retry": "python scripts/run_mine_tool.py agent-start",
-                    "Diagnose": "python scripts/run_mine_tool.py doctor",
+                    "Retry": "python scripts/run_tool.py agent-start",
+                    "Diagnose": "python scripts/run_tool.py doctor",
                 },
             },
         }, ensure_ascii=False, indent=2)
@@ -1115,7 +1115,7 @@ def run_agent_start(dataset_arg: str = "") -> str:
         datasets = payload.get("datasets") or []
         dataset_names = [str(item.get("name") or item.get("dataset_id") or item.get("id") or "").strip() for item in datasets[:5]]
         dataset_ids = [str(item.get("dataset_id") or item.get("id") or "").strip() for item in datasets[:5]]
-        action_map = {name: f"python scripts/run_mine_tool.py agent-start {did}" for name, did in zip(dataset_names, dataset_ids)}
+        action_map = {name: f"python scripts/run_tool.py agent-start {did}" for name, did in zip(dataset_names, dataset_ids)}
         return json.dumps({
             "state": "selection_required",
             "user_message": f"Please select a dataset to start mining. Available: {', '.join(dataset_names)}",
@@ -1128,7 +1128,7 @@ def run_agent_start(dataset_arg: str = "") -> str:
 
     background = start_background_worker(
         project_root=_project_root(),
-        script_path=SCRIPT_DIR / "run_mine_tool.py",
+        script_path=SCRIPT_DIR / "run_tool.py",
         interval=60,
     )
     store.save_background_session({
@@ -1141,11 +1141,11 @@ def run_agent_start(dataset_arg: str = "") -> str:
         "user_message": f"Mining started successfully. Background worker launched (session: {session_id}).",
         "user_actions": ["Check status", "Pause mining", "Stop mining"],
         "_internal": {
-            "next_command": "python scripts/run_mine_tool.py agent-control status",
+            "next_command": "python scripts/run_tool.py agent-control status",
             "action_map": {
-                "Check status": "python scripts/run_mine_tool.py agent-control status",
-                "Pause mining": "python scripts/run_mine_tool.py agent-control pause",
-                "Stop mining": "python scripts/run_mine_tool.py agent-control stop",
+                "Check status": "python scripts/run_tool.py agent-control status",
+                "Pause mining": "python scripts/run_tool.py agent-control pause",
+                "Stop mining": "python scripts/run_tool.py agent-control stop",
             },
             "session": store.load_background_session(),
         },
@@ -1168,7 +1168,7 @@ def run_agent_control(action: str = "status") -> str:
                 "user_message": "No active mining session. Start a new session to begin earning.",
                 "user_actions": ["Start mining"],
                 "_internal": {
-                    "action_map": {"Start mining": "python scripts/run_mine_tool.py agent-start"},
+                    "action_map": {"Start mining": "python scripts/run_tool.py agent-start"},
                 },
             }, ensure_ascii=False, indent=2)
         worker = build_worker_from_env()
@@ -1239,15 +1239,15 @@ def run_agent_control(action: str = "status") -> str:
                 user_msg += f" Warning: {len(recent_errors)} recent error(s) in log."
             user_acts = ["Pause mining", "Stop mining"]
             action_map = {
-                "Pause mining": "python scripts/run_mine_tool.py agent-control pause",
-                "Stop mining": "python scripts/run_mine_tool.py agent-control stop",
+                "Pause mining": "python scripts/run_tool.py agent-control pause",
+                "Stop mining": "python scripts/run_tool.py agent-control stop",
             }
         else:
             user_msg = f"Session {session_id} has stopped."
             if recent_errors:
                 user_msg += f" Last error: {recent_errors[-1][:120]}"
             user_acts = ["Start mining"]
-            action_map = {"Start mining": "python scripts/run_mine_tool.py agent-start"}
+            action_map = {"Start mining": "python scripts/run_tool.py agent-start"}
         return json.dumps({
             "state": "running" if is_running else "stopped",
             "user_message": user_msg,
@@ -1267,7 +1267,7 @@ def run_agent_control(action: str = "status") -> str:
             "user_message": f"unknown action: {normalized}",
             "user_actions": ["Check status"],
             "_internal": {
-                "action_map": {"Check status": "python scripts/run_mine_tool.py agent-control status"},
+                "action_map": {"Check status": "python scripts/run_tool.py agent-control status"},
             },
         }, ensure_ascii=False, indent=2)
 
@@ -1277,7 +1277,7 @@ def run_agent_control(action: str = "status") -> str:
             "user_message": "No active mining session found. Start a new session to begin.",
             "user_actions": ["Start mining"],
             "_internal": {
-                "action_map": {"Start mining": "python scripts/run_mine_tool.py agent-start"},
+                "action_map": {"Start mining": "python scripts/run_tool.py agent-start"},
             },
         }, ensure_ascii=False, indent=2)
 
@@ -1287,16 +1287,16 @@ def run_agent_control(action: str = "status") -> str:
         user_msg = "Mining paused. Session state has been saved."
         user_acts = ["Resume mining", "Stop mining"]
         action_map = {
-            "Resume mining": "python scripts/run_mine_tool.py agent-control resume",
-            "Stop mining": "python scripts/run_mine_tool.py agent-control stop",
+            "Resume mining": "python scripts/run_tool.py agent-control resume",
+            "Stop mining": "python scripts/run_tool.py agent-control stop",
         }
     elif normalized == "resume":
         payload = worker.resume()
         user_msg = "Mining resumed. Continuing from saved state."
         user_acts = ["Pause mining", "Stop mining"]
         action_map = {
-            "Pause mining": "python scripts/run_mine_tool.py agent-control pause",
-            "Stop mining": "python scripts/run_mine_tool.py agent-control stop",
+            "Pause mining": "python scripts/run_tool.py agent-control pause",
+            "Stop mining": "python scripts/run_tool.py agent-control stop",
         }
     else:
         payload = worker.stop()
@@ -1311,7 +1311,7 @@ def run_agent_control(action: str = "status") -> str:
         store.save_background_session({"last_stop_requested_at": int(payload.get("last_state_change_at") or 0)})
         user_msg = "Mining stopped. Background worker terminated."
         user_acts = ["Start new session"]
-        action_map = {"Start new session": "python scripts/run_mine_tool.py agent-start"}
+        action_map = {"Start new session": "python scripts/run_tool.py agent-start"}
 
     refreshed = _background_session_snapshot()
     if normalized == "stop" and refreshed and not refreshed.get("running"):
@@ -1533,10 +1533,10 @@ def render_validator_status() -> str:
             "user_message": " ".join(detail_parts),
             "user_actions": ["Check validator status", "Stop validator"],
             "_internal": {
-                "next_command": "python scripts/run_mine_tool.py validator-control status",
+                "next_command": "python scripts/run_tool.py validator-control status",
                 "action_map": {
-                    "Check validator status": "python scripts/run_mine_tool.py validator-control status",
-                    "Stop validator": "python scripts/run_mine_tool.py validator-control stop",
+                    "Check validator status": "python scripts/run_tool.py validator-control status",
+                    "Stop validator": "python scripts/run_tool.py validator-control stop",
                 },
                 "session": snapshot,
             },
@@ -1551,10 +1551,10 @@ def render_validator_status() -> str:
             "user_message": f"Validator is not ready: {'; '.join(readiness.get('warnings', []))}",
             "user_actions": ["Run diagnostics", "Start validator"],
             "_internal": {
-                "next_command": "python scripts/run_mine_tool.py validator-doctor",
+                "next_command": "python scripts/run_tool.py validator-doctor",
                 "action_map": {
-                    "Run diagnostics": "python scripts/run_mine_tool.py validator-doctor",
-                    "Start validator": "python scripts/run_mine_tool.py validator-start",
+                    "Run diagnostics": "python scripts/run_tool.py validator-doctor",
+                    "Start validator": "python scripts/run_tool.py validator-start",
                 },
                 "readiness": readiness,
             },
@@ -1570,9 +1570,9 @@ def render_validator_status() -> str:
         "user_message": msg,
         "user_actions": ["Start validator"],
         "_internal": {
-            "next_command": "python scripts/run_mine_tool.py validator-start",
+            "next_command": "python scripts/run_tool.py validator-start",
             "action_map": {
-                "Start validator": "python scripts/run_mine_tool.py validator-start",
+                "Start validator": "python scripts/run_tool.py validator-start",
             },
         },
     }, ensure_ascii=False, indent=2)
@@ -1591,10 +1591,10 @@ def run_validator_start() -> str:
             "user_message": f"Validator is already running (session: {session_id}).",
             "user_actions": ["Check validator status", "Stop validator"],
             "_internal": {
-                "next_command": "python scripts/run_mine_tool.py validator-control status",
+                "next_command": "python scripts/run_tool.py validator-control status",
                 "action_map": {
-                    "Check validator status": "python scripts/run_mine_tool.py validator-control status",
-                    "Stop validator": "python scripts/run_mine_tool.py validator-control stop",
+                    "Check validator status": "python scripts/run_tool.py validator-control status",
+                    "Stop validator": "python scripts/run_tool.py validator-control stop",
                 },
                 "session": snapshot,
             },
@@ -1630,8 +1630,8 @@ def run_validator_start() -> str:
                 "readiness": readiness,
                 "fix_commands": fix_commands,
                 "action_map": {
-                    "Diagnose": "python scripts/run_mine_tool.py validator-doctor",
-                    "Retry": "python scripts/run_mine_tool.py validator-start",
+                    "Diagnose": "python scripts/run_tool.py validator-doctor",
+                    "Retry": "python scripts/run_tool.py validator-start",
                 },
             },
         }, ensure_ascii=False, indent=2)
@@ -1646,8 +1646,8 @@ def run_validator_start() -> str:
             "_internal": {
                 "error": str(exc),
                 "action_map": {
-                    "Retry": "python scripts/run_mine_tool.py validator-start",
-                    "Diagnose": "python scripts/run_mine_tool.py validator-doctor",
+                    "Retry": "python scripts/run_tool.py validator-start",
+                    "Diagnose": "python scripts/run_tool.py validator-doctor",
                 },
             },
         }, ensure_ascii=False, indent=2)
@@ -1662,10 +1662,10 @@ def run_validator_start() -> str:
         "user_message": msg,
         "user_actions": ["Check validator status", "Stop validator"],
         "_internal": {
-            "next_command": "python scripts/run_mine_tool.py validator-control status",
+            "next_command": "python scripts/run_tool.py validator-control status",
             "action_map": {
-                "Check status": "python scripts/run_mine_tool.py validator-control status",
-                "Stop": "python scripts/run_mine_tool.py validator-control stop",
+                "Check status": "python scripts/run_tool.py validator-control status",
+                "Stop": "python scripts/run_tool.py validator-control stop",
             },
             "session": result,
             "readiness": readiness,
@@ -1689,7 +1689,7 @@ def run_validator_control(action: str = "status") -> str:
             "user_message": f"unknown action: {normalized}",
             "user_actions": ["Check status"],
             "_internal": {
-                "action_map": {"Check status": "python scripts/run_mine_tool.py validator-control status"},
+                "action_map": {"Check status": "python scripts/run_tool.py validator-control status"},
             },
         }, ensure_ascii=False, indent=2)
 
@@ -1699,7 +1699,7 @@ def run_validator_control(action: str = "status") -> str:
             "user_message": "Validator is not currently running.",
             "user_actions": ["Start validator"],
             "_internal": {
-                "action_map": {"Start validator": "python scripts/run_mine_tool.py validator-start"},
+                "action_map": {"Start validator": "python scripts/run_tool.py validator-start"},
             },
         }, ensure_ascii=False, indent=2)
 
@@ -1709,7 +1709,7 @@ def run_validator_control(action: str = "status") -> str:
         "user_message": "Validator has been stopped.",
         "user_actions": ["Start validator"],
         "_internal": {
-            "action_map": {"Start validator": "python scripts/run_mine_tool.py validator-start"},
+            "action_map": {"Start validator": "python scripts/run_tool.py validator-start"},
             "result": result,
         },
     }, ensure_ascii=False, indent=2)
@@ -1802,7 +1802,7 @@ def run_validator_doctor() -> str:
         "registration_required": reg_check.get("registration_required", False),
     })
     if reg_check.get("registration_required") and not reg_check.get("registered"):
-        fix_commands.append("python scripts/run_mine_tool.py validator-start  # auto-registers on start")
+        fix_commands.append("python scripts/run_tool.py validator-start  # auto-registers on start")
 
     # 7. LLM backend (openclaw CLI / gateway / API)
     llm_backend = readiness.get("checks", {}).get("llm_backend", {})
@@ -1845,7 +1845,7 @@ def run_validator_doctor() -> str:
     all_ok = all(c.get("ok", False) for c in checks)
     next_command = None
     if all_ok and not running:
-        next_command = "python scripts/run_mine_tool.py validator-start"
+        next_command = "python scripts/run_tool.py validator-start"
     elif fix_commands:
         next_command = fix_commands[0]
 
@@ -2133,6 +2133,22 @@ def main() -> int:
 
             store.update_session(status="stopped")
             print(json.dumps(runtime.status(), ensure_ascii=False, indent=2))
+
+            # Auto-update re-exec: if the validator stopped due to auto_update,
+            # re-exec the same command so it picks up the new code immediately.
+            last_action = ""
+            try:
+                for action in runtime._recent_actions[-5:]:
+                    if isinstance(action, dict) and action.get("action") == "auto_update_applied":
+                        last_action = "auto_update"
+                        break
+            except Exception:
+                pass
+            if last_action == "auto_update":
+                import logging
+                logging.getLogger("validator.worker").info("Auto-update: re-exec with new code")
+                os.execv(sys.executable, [sys.executable, "-u", __file__] + sys.argv[1:])
+
         except Exception as exc:
             store.update_session(status="error", error=str(exc))
             print(json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False, indent=2))
@@ -2267,13 +2283,18 @@ def main() -> int:
             max_iter = int(namespace.args[1]) if len(namespace.args) > 1 else 1
         except ValueError:
             raise SystemExit("run-worker: expected integer arguments for interval and max_iterations")
-        # Configure logging so background-worker INFO-level messages actually
-        # reach the log file. Without this the default Python logger only
-        # emits WARNING+ to stderr, and every log.info("heartbeat ok") /
-        # log.info("discovery iteration") call is silently dropped —
-        # producing a 0-byte log file that looks like a hung worker.
         _configure_background_logging()
-        print(json.dumps(worker.run_worker(interval=interval, max_iterations=max_iter), ensure_ascii=False, indent=2))
+        result = worker.run_worker(interval=interval, max_iterations=max_iter)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        # Auto-update re-exec: if the worker stopped due to auto_update,
+        # re-exec the same command so it picks up the new code immediately.
+        # This avoids requiring an external supervisor to restart the worker.
+        stop_reason = str(result.get("status", {}).get("stop_reason") or
+                         worker.state_store.load_session().get("stop_reason") or "")
+        if stop_reason == "auto_update":
+            import logging
+            logging.getLogger("agent.worker").info("Auto-update: re-exec with new code")
+            os.execv(sys.executable, [sys.executable, "-u", __file__] + sys.argv[1:])
         return 0
 
     if namespace.command == "process-task-file":

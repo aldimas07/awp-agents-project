@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 # Paths
-PROJECT_ROOT = Path("/home/losbanditos/_code/awp-agents-project")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 AGENTS_DIR = PROJECT_ROOT / "agents"
 HIVE_SCRIPT = PROJECT_ROOT / "scripts" / "hive.sh"
 EXPORT_FILE = PROJECT_ROOT / "agents_21_50_keys.txt"
@@ -48,7 +48,7 @@ OPENAI_API_KEY = "REDACTED"
 PREDICT_MODEL = "nousresearch/hermes-4-70b"
 
 # Ensure PATH includes cargo/local bins
-BIN_PATH = "/home/losbanditos/.cargo/bin:/home/losbanditos/.local/bin"
+BIN_PATH = f"{os.environ.get('HOME')}/.cargo/bin:{os.environ.get('HOME')}/.local/bin"
 os.environ["PATH"] = f"{BIN_PATH}:{os.environ.get('PATH', '')}"
 
 def run_cmd(cmd, env=None):

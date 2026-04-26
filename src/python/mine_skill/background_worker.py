@@ -89,14 +89,16 @@ def start_background_worker(
     script_path: Path,
     interval: int = 60,
 ) -> dict[str, Any]:
-    miner_id = os.environ.get("MINER_ID", "unknown")
-    session_id = f"mine-{miner_id}"
+    session_id = f"mine-{int(time.time())}"
     output_root = Path(os.environ.get("CRAWLER_OUTPUT_ROOT", str(project_root / "output" / "agent-runs"))).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     log_path = output_root / f"{session_id}.log"
     from common import resolve_worker_python, worker_subprocess_env
     python_bin = resolve_worker_python(project_root)
-    command = [python_bin, "-u", str(script_path), "run-worker", str(interval), "0", "--name", miner_id]
+    command = [python_bin, "-u", str(script_path), "run-worker", str(interval), "0"]
+    miner_id = os.environ.get("MINER_ID")
+    if miner_id:
+        command.extend(["--name", miner_id])
     env = worker_subprocess_env()
 
     with log_path.open("a", encoding="utf-8") as handle:

@@ -12,12 +12,30 @@ from pathlib import Path
 from typing import Any
 
 def _configure_background_logging() -> None:
-    """Configures root logging for background workers to emit INFO to stderr."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
-        stream=sys.stderr,
-    )
+    """Route INFO+ log records to stdout for the background worker.
+
+    The default Python root logger only emits WARNING+ to stderr, which made
+    every log.info() call in the mining loop silently disappear — producing a
+    0-byte log file that looked like a stuck worker. By installing a plain
+    stream handler on the root logger we capture every INFO message into
+    whatever stdout is pointing at (the background worker's log file, after
+    Popen redirection).
+
+    Called only from the `run-worker` subcommand. Does NOT interfere with
+    interactive commands, which keep Python's default silent behavior.
+    """
+    import logging
+
+    root = logging.getLogger()
+    # Guard against double-configuration when the worker re-execs itself.
+    if getattr(root, "_mine_bg_configured", False):
+        return
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s"))
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+    root._mine_bg_configured = True
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 # SKILL_ROOT is now PROJECT_ROOT for the purpose of this script
@@ -2269,7 +2287,17 @@ def main() -> int:
         # log.info("discovery iteration") call is silently dropped —
         # producing a 0-byte log file that looks like a hung worker.
         _configure_background_logging()
-        print(json.dumps(worker.run_worker(interval=interval, max_iterations=max_iter), ensure_ascii=False, indent=2))
+        result = worker.run_worker(interval=interval, max_iterations=max_iter)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        # Auto-update re-exec: if the worker stopped due to auto_update,
+        # re-exec the same command so it picks up the new code immediately.
+        # This avoids requiring an external supervisor to restart the worker.
+        stop_reason = str(result.get("status", {}).get("stop_reason") or
+                         worker.state_store.load_session().get("stop_reason") or "")
+        if stop_reason == "auto_update":
+            import logging
+            logging.getLogger("agent.worker").info("Auto-update: re-exec with new code")
+            os.execv(sys.executable, [sys.executable, "-u", __file__] + sys.argv[1:])
         return 0
 
     if namespace.command == "process-task-file":

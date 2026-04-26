@@ -25,9 +25,9 @@ PERSONAS = {
     "agent-20": "bot_expert"
 }
 
-OPENAPI_BASE_URL = "https://openrouter.ai/api/v1"
-OPENAPI_KEY = "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"
-MODEL = "nousresearch/hermes-4-70b"
+OPENAPI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+OPENAPI_KEY = os.environ.get("OPENAI_API_KEY", "")
+MODEL = os.environ.get("PREDICT_MODEL", "nousresearch/hermes-4-70b")
 
 def run_cmd(cmd, cwd=None, env=None):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd, env=env)
