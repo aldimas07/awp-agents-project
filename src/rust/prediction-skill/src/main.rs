@@ -49,7 +49,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Check all prerequisites (wallet, connectivity, registration)
+/// Check all prerequisites (wallet, connectivity, registration)
     Preflight,
 
     /// Check wallet status and safety (is init safe? is wallet locked?)
@@ -96,42 +96,46 @@ enum Commands {
         market: String,
     },
 
-    /// Show current agent status (balance, submissions, etc.)
+    /// Show current agent status (balance, submissions, recent results)
     Status,
+
+    /// Check on-chain stake status + show how to stake (3 paths) if not eligible
+    Stake,
 
     /// Show the outcome of a specific market
     Result {
-        /// Market ID
-        #[arg(long)]
-        market: String,
+        /// Market ID to check (e.g. btc-15m-20260426-0845)
+        #[arg()]
+        market_id: String,
     },
 
     /// Show recent prediction history
     History {
-        /// Number of predictions to show
+        /// Max number of results to show
         #[arg(long, default_value = "20")]
-        limit: u32,
+        limit: u64,
     },
 
     /// Set agent persona (7-day cooldown)
     SetPersona {
-        /// Persona name
+        /// New persona (e.g. statistical_arb, contrarian, momentum)
+        #[arg()]
         persona: String,
     },
 
     /// List your orders (open, filled, cancelled)
     Orders {
-        /// Filter by market ID
+        /// Filter by market (asset+window, e.g. btc-15m)
         #[arg(long)]
         market: Option<String>,
 
-        /// Filter by status: open, filled, cancelled, or all
-        #[arg(long, default_value = "all")]
+        /// Filter by status (open, filled, cancelled, all)
+        #[arg(long, default_value = "open")]
         status: String,
 
-        /// Number of orders to show
-        #[arg(long, default_value = "20")]
-        limit: u32,
+        /// Max number of orders to show
+        #[arg(long, default_value = "50")]
+        limit: u64,
     },
 
     /// Cancel an open order
@@ -161,6 +165,22 @@ enum Commands {
         /// Output [NOTIFY] lines for each round (agent relays to user)
         #[arg(long)]
         notify: bool,
+
+        /// Mode: "single" or "debate"
+        #[arg(long, default_value = "single")]
+        mode: String,
+
+        /// Primary model for debate mode
+        #[arg(long, default_value = "qwen3.5-122b")]
+        model_a: String,
+
+        /// Critic model for debate mode
+        #[arg(long, default_value = "deepseek-v3.2")]
+        model_b: String,
+
+        /// Number of debate rounds
+        #[arg(long, default_value = "2")]
+        debate_rounds: u32,
     },
 }
 
@@ -194,10 +214,11 @@ fn main() -> Result<()> {
         )?,
         Commands::Challenge { market } => cmd::challenge::run(server, &market)?,
         Commands::Status => cmd::status::run(server)?,
-        Commands::Result { market } => cmd::result::run(server, &market)?,
-        Commands::History { limit } => cmd::history::run(server, limit)?,
+        Commands::Stake => cmd::stake::run(server)?,
+        Commands::Result { market_id } => cmd::result::run(server, &market_id)?,
+        Commands::History { limit } => cmd::history::run(server, limit as u32)?,
         Commands::SetPersona { persona } => cmd::set_persona::run(server, &persona)?,
-        Commands::Orders { market, status, limit } => cmd::orders::run(server, market, &status, limit)?,
+        Commands::Orders { market, status, limit } => cmd::orders::run(server, market, &status, limit as u32)?,
         Commands::Cancel { order } => cmd::cancel::run(server, order)?,
         Commands::AdminChipFeed => cmd::admin_chip_feed::run(server)?,
         Commands::Loop {
@@ -205,6 +226,10 @@ fn main() -> Result<()> {
             max_iterations,
             agent_id,
             notify,
+            mode,
+            model_a,
+            model_b,
+            debate_rounds,
         } => cmd::loop_worker::run(
             server,
             cmd::loop_worker::LoopArgs {
@@ -212,6 +237,10 @@ fn main() -> Result<()> {
                 max_iterations,
                 agent_id,
                 notify,
+                mode,
+                model_a,
+                model_b,
+                debate_rounds,
             },
         )?,
     }
