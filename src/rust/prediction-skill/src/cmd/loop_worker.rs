@@ -51,6 +51,26 @@ pub struct LoopArgs {
     pub agent_id: String,
     /// If true, output [NOTIFY] lines for the agent to relay to user
     pub notify: bool,
+ /// Mode: "single" or "debate"
+ pub mode: String,
+ /// Primary model for debate mode
+ pub model_a: String,
+ /// Critic model for debate mode
+ pub model_b: String,
+ /// Number of debate rounds
+ pub debate_rounds: u32,
+ /// LLM API endpoint for Model A
+ pub api_endpoint: Option<String>,
+ /// LLM API key for Model A
+ pub api_key: Option<String>,
+ /// LLM provider for Model A
+ pub provider: String,
+ /// LLM API endpoint for Model B (optional)
+ pub api_endpoint_b: Option<String>,
+ /// LLM API key for Model B (optional)
+ pub api_key_b: Option<String>,
+ /// LLM provider for Model B
+ pub provider_b: String,
 }
 
 /// Print a notification line that the agent should relay to the user.
@@ -83,7 +103,8 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
     .ok(); // Ignore error if handler already set
 
     // Detect LLM backend: prefer direct API, fall back to openclaw
-    let backend = resolve_llm_backend(&args.agent_id);
+    // Detect LLM backend: use CLI args first, then env vars, NO openclaw
+    let backend = resolve_llm_backend(&args);
 
     let mut iteration: u64 = 0;
     let mut consecutive_empty = 0u32;
@@ -99,7 +120,7 @@ pub fn run(server_url: &str, args: LoopArgs) -> Result<()> {
         log_info!("loop: === iteration {} ===", iteration);
         let iter_start = Instant::now();
 
-        match run_iteration(server_url, &backend, &args.agent_id) {
+        match run_iteration(server_url, &backend, &args) {
             IterationResult::Submitted { market, direction, tickets, tickets_filled, order_status } => {
                 let elapsed = iter_start.elapsed().as_secs_f64();
                 let fill_info = match order_status.as_str() {
@@ -208,7 +229,7 @@ enum IterationResult {
     },
 }
 
-fn run_iteration(server_url: &str, backend: &LlmBackend, agent_id: &str) -> IterationResult {
+fn run_iteration(server_url: &str, backend: &LlmBackend, args: &LoopArgs) -> IterationResult {
     // 1. Create API client
     let client = match ApiClient::new(server_url.to_string()) {
         Ok(c) => c,
@@ -432,7 +453,7 @@ fn run_iteration(server_url: &str, backend: &LlmBackend, agent_id: &str) -> Iter
 
     // 8. Call LLM
     let llm_start = Instant::now();
-    let llm_response = call_llm(backend, agent_id, &prompt);
+    let llm_response = call_llm(backend, &args.agent_id, &prompt);
     let llm_elapsed = llm_start.elapsed();
 
     let llm_text = match llm_response {
@@ -567,6 +588,113 @@ fn run_iteration(server_url: &str, backend: &LlmBackend, agent_id: &str) -> Iter
         }
     }
 }
+
+/// Metrics collected during a debate session
+#[derive(Debug, Clone)]
+pub struct DebateMetrics {
+ pub total_duration_secs: f64,
+ pub rounds_completed: u32,
+ pub rounds_requested: u32,
+ pub model_a_total_time_secs: f64,
+ pub model_b_total_time_secs: f64,
+ pub succeeded: bool,
+}
+
+/// Run a debate session between two models
+fn run_debate(
+ api_endpoint_a: &str,
+ api_key_a: &str,
+ provider_a: &str,
+ model_a: &str,
+ api_endpoint_b: &str,
+ api_key_b: &str,
+ provider_b: &str,
+ model_b: &str,
+ rounds: u32,
+ prompt: &str,
+) -> Result<(String, DebateMetrics)> {
+ use std::time::Instant;
+ 
+ let start = Instant::now();
+ let mut model_a_time = 0.0;
+ let mut model_b_time = 0.0;
+ let mut rounds_completed = 0u32;
+ 
+ let mut debate_history = String::new();
+ let mut current_context = prompt.to_string();
+ 
+ for round in 1..=rounds {
+ // Round N - Model A generates/refines prediction
+ log_info!("loop: debate round {}/{} - model A ({}) analyzing...", round, rounds, model_a);
+ let model_a_start = Instant::now();
+ 
+ let model_a_prompt = if round == 1 {
+ format!("{}\n\n## Your Task\nAnalyze the market data and provide a prediction. Output your decision in JSON format.", current_context)
+ } else {
+ format!("{}\n\n## Previous Rounds\n{}\n\n## Your Task\nBased on Model B's critique, refine your prediction. Address the weaknesses identified and incorporate valid points.\n\nOutput your refined decision in JSON format.", current_context, debate_history)
+ };
+ 
+ let model_a_response = match call_llm_direct(api_endpoint_a, api_key_a, model_a, &model_a_prompt) {
+ Ok(response) => response,
+ Err(e) => {
+ log_warn!("loop: model A failed in round {}: {}", round, e);
+ return Ok((debate_history, DebateMetrics {
+ total_duration_secs: start.elapsed().as_secs_f64(),
+ rounds_completed: round - 1,
+ rounds_requested: rounds,
+ model_a_total_time_secs: model_a_time,
+ model_b_total_time_secs: model_b_time,
+ succeeded: false,
+ }));
+ }
+ };
+ 
+ let model_a_elapsed = model_a_start.elapsed().as_secs_f64();
+ model_a_time += model_a_elapsed;
+ rounds_completed = round;
+ 
+ log_info!("loop: model A response (round {}): {} chars ({:.1}s)", round, model_a_response.len(), model_a_elapsed);
+ 
+ let model_a_json = extract_json(&model_a_response).unwrap_or(model_a_response.clone());
+ debate_history.push_str(&format!("\n### Round {} - Model A\n{}\n", round, model_a_json));
+ 
+ if round < rounds {
+ // Model B critiques
+ log_info!("loop: debate round {}/{} - model B ({}) critiquing...", round, rounds, model_b);
+ let model_b_start = Instant::now();
+ 
+ let model_b_prompt = format!("{}\n\n## Model A's Prediction (Round {})\n{}\n\n## Your Task\nCritique the prediction. Identify strengths, weaknesses, missing factors, and alternative perspectives.", current_context, round, model_a_json);
+ 
+ let model_b_response = match call_llm_direct(api_endpoint_b, api_key_b, model_b, &model_b_prompt) {
+ Ok(response) => response,
+ Err(e) => {
+ log_warn!("loop: model B failed in round {}: {}", round, e);
+ continue;
+ }
+ };
+ 
+ let model_b_elapsed = model_b_start.elapsed().as_secs_f64();
+ model_b_time += model_b_elapsed;
+ 
+ log_info!("loop: model B critique (round {}): {} chars ({:.1}s)", round, model_b_response.len(), model_b_elapsed);
+ 
+ debate_history.push_str(&format!("\n### Round {} - Model B Critique\n{}\n", round, model_b_response));
+ }
+ }
+ 
+ let total_time = start.elapsed().as_secs_f64();
+ log_info!("loop: debate completed: {} rounds in {:.1}s (A: {:.1}s, B: {:.1}s)", rounds_completed, total_time, model_a_time, model_b_time);
+ 
+ Ok((debate_history, DebateMetrics {
+ total_duration_secs: total_time,
+ rounds_completed,
+ rounds_requested: rounds,
+ model_a_total_time_secs: model_a_time,
+ model_b_total_time_secs: model_b_time,
+ succeeded: true,
+ }))
+}
+
 
 fn build_prompt(
     market_id: &str,
@@ -1023,45 +1151,45 @@ fn build_prompt(
 }
 
 /// Resolve which LLM backend to use.
-///
-/// Priority:
-/// 1. If `OPENAI_API_KEY` and `OPENAI_BASE_URL` are set → DirectApi
-/// 2. If `openclaw` binary is found → OpenClaw
-/// 3. Panic with a helpful message
-fn resolve_llm_backend(agent_id: &str) -> LlmBackend {
-    let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
-    let base_url = std::env::var("OPENAI_BASE_URL").unwrap_or_default();
-    let model = std::env::var("PREDICT_MODEL")
-        .or_else(|_| std::env::var("OPENAI_MODEL"))
-        .unwrap_or_else(|_| "google/gemma-4-31b-it".to_string());
-
-    if !api_key.is_empty() && !base_url.is_empty() {
-        log_info!(
-            "loop: using direct LLM API (model={}, base_url={})",
-            model,
-            base_url
-        );
-        return LlmBackend::DirectApi {
-            base_url,
-            api_key,
-            model,
-        };
+/// NO openclaw - uses CLI args first, then environment variables.
+/// NO openclaw - uses CLI args first, then environment variables.
+fn resolve_llm_backend(args: &LoopArgs) -> LlmBackend {
+    // Priority: CLI args > environment variables > defaults
+    
+    // Get API key
+    let api_key = args.api_key.clone()
+        .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+        .or_else(|| std::env::var("LLM_API_KEY").ok())
+        .unwrap_or_else(|| {
+            eprintln!("ERROR: no API key! Set --api-key or LLM_API_KEY env var.");
+            std::process::exit(1);
+        });
+    
+    // Get base URL
+    let base_url = args.api_endpoint.clone()
+        .or_else(|| std::env::var("OPENAI_BASE_URL").ok())
+        .or_else(|| std::env::var("LLM_API_ENDPOINT").ok())
+        .unwrap_or_else(|| {
+            eprintln!("ERROR: no API endpoint! Set --api-endpoint or LLM_API_ENDPOINT env var.");
+            std::process::exit(1);
+        });
+    
+    // Use model_a
+    let model = args.model_a.clone();
+    
+    log_info!(
+        "loop: using direct LLM API (model={}, endpoint={})",
+        model,
+        base_url
+    );
+    
+    LlmBackend::DirectApi {
+        base_url,
+        api_key,
+        model,
     }
-
-    // Fallback to openclaw
-    if let Some(bin) = detect_openclaw() {
-        log_info!("loop: using openclaw at {}", bin);
-        ensure_agent(&bin, agent_id);
-        return LlmBackend::OpenClaw { bin_path: bin };
-    }
-
-    log_error!("loop: no LLM backend available!");
-    log_error!("loop: set OPENAI_API_KEY + OPENAI_BASE_URL, or install openclaw.");
-    eprintln!("\npredict-agent loop requires an LLM backend.");
-    eprintln!("Option 1: set OPENAI_API_KEY and OPENAI_BASE_URL env vars for direct API.");
-    eprintln!("Option 2: install openclaw CLI.");
-    std::process::exit(1);
 }
+
 
 /// Dispatch LLM call to the appropriate backend.
 fn call_llm(backend: &LlmBackend, agent_id: &str, prompt: &str) -> Result<String> {

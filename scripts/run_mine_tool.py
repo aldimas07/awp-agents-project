@@ -44,19 +44,17 @@ PROJECT_ROOT = SCRIPT_DIR.parent # This is awp-agents-project/
 
 def inject_skill_root() -> Path:
     """Allow direct script execution to import sibling packages like ``lib``."""
-    # Adjust for new structure: common and other modules are now in src/python/mine_skill/
-    MINE_SKILL_SRC = PROJECT_ROOT / "src" / "python" / "mine_skill"
-    LIB_PATH = MINE_SKILL_SRC / "lib" # Assuming 'lib' folder for common modules
+    # Use the cloned awp-worknet/mine-skill repo
+    MINE_SKILL_ROOT = PROJECT_ROOT / "awp-skill" / "mine-skill"
+    MINE_SKILL_SRC = MINE_SKILL_ROOT / "scripts"
+    LIB_PATH = MINE_SKILL_ROOT / "lib"
 
+    if str(MINE_SKILL_ROOT) not in sys.path:
+        sys.path.insert(0, str(MINE_SKILL_ROOT))
     if str(MINE_SKILL_SRC) not in sys.path:
         sys.path.insert(0, str(MINE_SKILL_SRC))
-    if str(LIB_PATH) not in sys.path: # Add lib path if it exists
+    if str(LIB_PATH) not in sys.path:
         sys.path.insert(0, str(LIB_PATH))
-
-    # Add the overall python src directory for global modules if any
-    PYTHON_SRC_DIR = PROJECT_ROOT / "src" / "python"
-    if str(PYTHON_SRC_DIR) not in sys.path:
-        sys.path.insert(0, str(PYTHON_SRC_DIR))
 
     return MINE_SKILL_SRC
 
@@ -1881,24 +1879,27 @@ def main() -> int:
     # Handle setup commands first (don't need full imports)
     if namespace.command == "setup":
         import subprocess
+        mine_setup = PROJECT_ROOT / "awp-skill" / "mine-skill" / "scripts" / "mine_setup.py"
         result = subprocess.run(
-            [sys.executable, str(Path(__file__).parent / "mine_setup.py")],
+            [sys.executable, str(mine_setup)],
             cwd=Path(__file__).parent.parent,
         )
         return result.returncode
 
     if namespace.command == "setup-status":
         import subprocess
+        mine_setup = PROJECT_ROOT / "awp-skill" / "mine-skill" / "scripts" / "mine_setup.py"
         result = subprocess.run(
-            [sys.executable, str(Path(__file__).parent / "mine_setup.py"), "--status"],
+            [sys.executable, str(mine_setup), "--status"],
             cwd=Path(__file__).parent.parent,
         )
         return result.returncode
 
     if namespace.command == "setup-fix":
         import subprocess
+        mine_setup = PROJECT_ROOT / "awp-skill" / "mine-skill" / "scripts" / "mine_setup.py"
         result = subprocess.run(
-            [sys.executable, str(Path(__file__).parent / "mine_setup.py"), "--fix"],
+            [sys.executable, str(mine_setup), "--fix"],
             cwd=Path(__file__).parent.parent,
         )
         return result.returncode

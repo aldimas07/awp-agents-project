@@ -41,7 +41,7 @@ while true; do
   python3 "$PROJECT_ROOT/src/python/prediction_tracker/hint_generator.py" --agent "$AGENT_ID"
   
   # 2. Run prediction (Rust) - single iteration
-  predict-agent loop --agent-id "$AGENT_ID" --interval "$INTERVAL" --max-iterations 1
+  "$PROJECT_ROOT"/predict-agent loop --agent-id "$AGENT_ID" --interval "$INTERVAL" --max-iterations 1
   
   echo "[Wrapper] Iteration complete, sleeping for ${INTERVAL}s..."
   sleep "$INTERVAL"

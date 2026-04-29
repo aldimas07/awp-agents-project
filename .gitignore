@@ -33,6 +33,11 @@ src/python/output/
 
 # Upstream skill repos (cloned separately)
 awp-skill/
+prediction-skill/
+
+# Local tooling / binaries
+.local/
+predict-agent
 
 # Scratch/debug scripts
 scratch/

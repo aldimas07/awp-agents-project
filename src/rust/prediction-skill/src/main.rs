@@ -181,6 +181,30 @@ enum Commands {
         /// Number of debate rounds
         #[arg(long, default_value = "2")]
         debate_rounds: u32,
+
+        /// LLM API endpoint for Model A
+        #[arg(long)]
+        api_endpoint: Option<String>,
+
+        /// LLM API key for Model A
+        #[arg(long)]
+        api_key: Option<String>,
+
+        /// LLM provider for Model A
+        #[arg(long, default_value = "openai")]
+        provider: String,
+
+        /// LLM API endpoint for Model B
+        #[arg(long)]
+        api_endpoint_b: Option<String>,
+
+        /// LLM API key for Model B
+        #[arg(long)]
+        api_key_b: Option<String>,
+
+        /// LLM provider for Model B
+        #[arg(long, default_value = "openai")]
+        provider_b: String,
     },
 }
 
@@ -230,6 +254,12 @@ fn main() -> Result<()> {
             model_a,
             model_b,
             debate_rounds,
+            api_endpoint,
+            api_key,
+            provider,
+            api_endpoint_b,
+            api_key_b,
+            provider_b,
         } => cmd::loop_worker::run(
             server,
             cmd::loop_worker::LoopArgs {
@@ -239,8 +269,14 @@ fn main() -> Result<()> {
                 notify,
                 mode,
                 model_a,
-                model_b,
                 debate_rounds,
+                api_endpoint,
+                api_key,
+                provider,
+                api_endpoint_b,
+                api_key_b,
+                provider_b,
+                model_b,
             },
         )?,
     }
