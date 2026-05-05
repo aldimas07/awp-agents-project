@@ -98,6 +98,10 @@ function start_agent() {
         local mine_pid=$(jq -r '.pid' "$agent_dir/state/background_session.json" 2>/dev/null)
         if [ "$mine_pid" != "null" ] && [ -n "$mine_pid" ]; then
             echo "$mine_pid" > "$PIDS_DIR/$name-mine.pid"
+            local log_path=$(jq -r '.log_path' "$agent_dir/state/background_session.json" 2>/dev/null)
+            if [ -n "$log_path" ] && [ "$log_path" != "null" ]; then
+                ln -sf "$log_path" "$agent_dir/logs/mine.log"
+            fi
             echo "[Hive] Miner for $name started with PID $mine_pid."
         else
             echo "[Hive] Failed to get Miner PID for $name."
