@@ -19,6 +19,7 @@
 ///   - Graceful shutdown on SIGINT/SIGTERM
 
 use anyhow::{Context, Result};
+use regex::Regex;
 use serde_json::{json, Value};
 use std::io::Write;
 use std::process::Command;
@@ -463,8 +464,43 @@ fn run_iteration(server_url: &str, backend: &LlmBackend, args: &LoopArgs) -> Ite
             text
         }
         Err(e) => {
-            return IterationResult::LlmFailed {
-                reason: format!("{e}"),
+            // Try fallback model if configured and backend is DirectApi
+            if let Ok(fallback_model) = std::env::var("OPENAI_MODEL") {
+                if let LlmBackend::DirectApi { base_url, api_key, model } = backend {
+                    if fallback_model.as_str() != model.as_str() {
+                        log_warn!("loop: primary LLM failed ({e}), retrying with fallback model {fallback_model}");
+                        let fallback_backend = LlmBackend::DirectApi {
+                            base_url: base_url.clone(),
+                            api_key: api_key.clone(),
+                            model: fallback_model,
+                        };
+                        match call_llm(&fallback_backend, &args.agent_id, &prompt) {
+                            Ok(text) => {
+                                let fallback_elapsed = llm_start.elapsed();
+                                log_info!("loop: fallback LLM responded ({:.1}s, {} chars)", fallback_elapsed.as_secs_f64(), text.len());
+                                log_debug!("loop: fallback LLM raw output: {}", truncate_str(&text, 500));
+                                text
+                            }
+                            Err(e2) => {
+                                return IterationResult::LlmFailed {
+                                    reason: format!("primary: {e} | fallback: {e2}"),
+                                };
+                            }
+                        }
+                    } else {
+                        return IterationResult::LlmFailed {
+                            reason: format!("{e}"),
+                        };
+                    }
+                } else {
+                    return IterationResult::LlmFailed {
+                        reason: format!("{e}"),
+                    };
+                }
+            } else {
+                return IterationResult::LlmFailed {
+                    reason: format!("{e}"),
+                };
             }
         }
     };
@@ -735,12 +771,19 @@ fn build_prompt(
         if persona != "none" { format!(" (persona: {})", persona) } else { String::new() }
     ));
 
-    // ── SMHL challenge (mandatory constraints, obfuscated prompt from server) ──
+    // -- SMHL challenge (mandatory constraints, obfuscated prompt from server) --
     // The server returns an obfuscated natural-language prompt. Do NOT try to
-    // parse it structurally — just forward it to the LLM, which can read
+    // parse it structurally -- just forward it to the LLM, which can read
     // through the noise and produce compliant reasoning. Submissions that
     // violate any constraint are rejected.
-    if let Some(obf) = challenge.get("prompt").and_then(|v| v.as_str()) {
+    let challenge_text = challenge
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .or_else(|| challenge.get("challenge").and_then(|v| v.as_str()));
+    let challenge_instructions = challenge
+        .get("instructions")
+        .and_then(|v| v.as_str());
+    if let Some(obf) = challenge_text {
         prompt.push_str("## Server-Issued Challenge (reasoning must satisfy this in one pass)\n\n");
         prompt.push_str(&format!(
             "Submit only to market `{}`. The challenge below applies to your `reasoning` string.\n\n",
@@ -749,7 +792,15 @@ fn build_prompt(
         prompt.push_str("--- challenge begins ---\n");
         prompt.push_str(obf);
         prompt.push_str("\n--- challenge ends ---\n\n");
+        if let Some(inst) = challenge_instructions {
+            prompt.push_str("**Server instructions:** ");
+            prompt.push_str(inst);
+            prompt.push_str("\n\n");
+        }
         prompt.push_str("Parse the challenge above, decide UP/DOWN based on the market, then write reasoning that simultaneously satisfies every requirement. The server will programmatically verify all constraints and reject non-compliant submissions.\n\n");
+        prompt.push_str("**IMPORTANT: At the very end of your `reasoning` field, on a new line by itself, append the challenge answer in this exact format:**\n");
+        prompt.push_str("`Challenge: <answer>`\n\n");
+        prompt.push_str("Replace `<answer>` with the actual numeric answer derived from the challenge. The server will search for this exact pattern at the end of your reasoning. If it is missing, your submission will be rejected.\n\n");
     }
 
     // Persona-specific ticket sizing guidance
@@ -830,15 +881,24 @@ fn build_prompt(
     prompt.push_str("- Check market sentiment\n");
     prompt.push_str("- Look up relevant data\n\n");
     prompt.push_str("Better analysis = better decisions. Take time if it helps.\n\n");
-    prompt.push_str("## Final Output\n\n");
-    prompt.push_str("Output your decision on a line starting with `DECISION:` followed by a JSON object:\n\n");
-    prompt.push_str("```\n");
-    prompt.push_str("DECISION: {\"action\": \"submit\", \"direction\": \"up\", \"tickets\": 3000, \"market_id\": \"...\", \"limit_price\": 0.55, \"reasoning\": \"...\"}\n");
-    prompt.push_str("```\n\n");
+    prompt.push_str("## Final Output (STRICT FORMAT)\n\n");
+    prompt.push_str(
+        "You MUST output exactly ONE line. No other text is allowed before or after it.\n",
+    );
+    prompt.push_str(
+        "The line must start with DECISION: followed immediately by a compact JSON object.\n\n",
+    );
+    prompt.push_str("Correct example (copy this exact pattern, only changing values):\n");
+    prompt.push_str(
+        "DECISION: {\"action\":\"submit\",\"direction\":\"up\",\"tickets\":3000,\"market_id\":\"...\",\"limit_price\":0.55,\"reasoning\":\"...\"}\n\n",
+    );
+    prompt.push_str(
+        "Incorrect: adding text before DECISION, adding markdown fences, adding line breaks inside the JSON.\n\n",
+    );
     prompt.push_str("Required fields:\n");
     prompt.push_str("- \"action\": \"submit\" or \"skip\"\n");
     prompt.push_str("- \"direction\": \"up\" or \"down\" (if submitting)\n");
-    prompt.push_str("- \"reasoning\": 80-2000 chars, ≥2 sentences, must mention the asset or a direction word\n");
+    prompt.push_str("- \"reasoning\": 80-2000 chars, >=2 sentences, must mention the asset or a direction word. MUST end with 'Challenge: <number>' on its own last line.\n");
     prompt.push_str("\n## Reasoning Requirements (IMPORTANT)\n\n");
     prompt.push_str("Your reasoning must be a fresh MARKET analysis — not boilerplate about yourself.\n\n");
     prompt.push_str("**DO NOT** open with or include:\n");
@@ -1174,8 +1234,10 @@ fn resolve_llm_backend(args: &LoopArgs) -> LlmBackend {
             std::process::exit(1);
         });
     
-    // Use model_a
-    let model = args.model_a.clone();
+    let model = std::env::var("PREDICT_MODEL")
+        .ok()
+        .filter(|m| !m.trim().is_empty())
+        .unwrap_or_else(|| args.model_a.clone());
     
     log_info!(
         "loop: using direct LLM API (model={}, endpoint={})",
@@ -1229,15 +1291,16 @@ fn call_llm_direct(
         "messages": [
             {
                 "role": "system",
-                "content": "You are a crypto market analyst. Analyze the data and respond with a DECISION JSON block."
+                "content": "You are a crypto market analyst. You MUST output ONLY a single line starting with DECISION: followed by compact JSON. Do NOT output markdown, explanations, thinking steps, or any text before or after the DECISION line."
             },
             {
                 "role": "user",
                 "content": prompt
             }
         ],
-        "temperature": 0.7,
-        "max_tokens": 2048
+        "temperature": 0.3,
+        "max_tokens": 4096,
+        "response_format": {"type": "json_object"}
     });
 
     let client = reqwest::blocking::Client::builder()
@@ -1397,6 +1460,16 @@ fn parse_llm_response(text: &str) -> Result<LlmDecision> {
         .filter(|s| s.len() >= 80)
         .context("missing or too short 'reasoning' (must be >= 80 chars)")?;
 
+    // Validate challenge answer format (if challenge present)
+    // Must end with "\nChallenge: <number>" where <number> is integer
+    let challenge_regex = regex::Regex::new(r"(?m)\nChallenge:\s*(\d+)\s*$").unwrap();
+    if let Some(caps) = challenge_regex.captures(&reasoning) {
+        let _answer: i64 = caps[1].parse().unwrap();
+        // Valid challenge answer found
+    } else {
+        return Err(anyhow::anyhow!("reasoning missing challenge answer (expected '\\nChallenge: <number>' at end)"));
+    }
+
     let tickets = v
         .get("tickets")
         .and_then(|t| t.as_u64().or_else(|| t.as_f64().map(|f| f as u64)))
@@ -1527,6 +1600,32 @@ fn extract_json(text: &str) -> Option<String> {
         }
     }
 
+    // Priority 5: Search for {"action" specifically and extract to matching brace
+    if let Some(action_start) = trimmed.find("{\"action\"") {
+        let json_part = &trimmed[action_start..];
+        let mut depth = 0;
+        let mut json_end = 0;
+        for (i, ch) in json_part.chars().enumerate() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        json_end = i + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if json_end > 0 {
+            let candidate = &json_part[..json_end];
+            if serde_json::from_str::<Value>(candidate).is_ok() {
+                return Some(candidate.to_string());
+            }
+        }
+    }
+
     None
 }
 
@@ -1611,9 +1710,10 @@ fn calculate_backoff(base: u64, consecutive: u32, server_hint: Option<u64>) -> u
     if let Some(hint) = server_hint {
         return hint;
     }
-    // Exponential backoff: base * 2^consecutive, capped at 600s
-    let multiplier = 2u64.pow(consecutive.min(4));
-    (base * multiplier).min(600)
+    // Gentler backoff: base * (1 + consecutive), capped at 300s
+    // First error waits base interval instead of 2x base
+    let multiplier = 1u64 + (consecutive as u64).min(4);
+    (base * multiplier).min(300)
 }
 
 fn interruptible_sleep(seconds: u64, running: &Arc<AtomicBool>) {

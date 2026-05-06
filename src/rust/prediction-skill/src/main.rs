@@ -171,7 +171,7 @@ enum Commands {
         mode: String,
 
         /// Primary model for debate mode
-        #[arg(long, default_value = "qwen3.5-122b")]
+        #[arg(long, default_value = "kimi-k2.6")]
         model_a: String,
 
         /// Critic model for debate mode

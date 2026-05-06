@@ -31,8 +31,6 @@ export HOME="$PROJECT_ROOT/agents/$AGENT_ID/home"
 if [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
   source "$PROJECT_ROOT/.venv/bin/activate"
 fi
-printenv | grep OPENAI
-
 # Loop forever
 while true; do
   echo "[Wrapper] Starting iteration for $AGENT_ID at $(date)"
