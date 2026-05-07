@@ -116,6 +116,14 @@ enum Commands {
         limit: u64,
     },
 
+    Outcomes {
+        #[arg(long, env = "MINER_ID", default_value = "predict-worker")]
+        agent_id: String,
+
+        #[arg(long, default_value = "500")]
+        limit: u32,
+    },
+
     /// Set agent persona (7-day cooldown)
     SetPersona {
         /// New persona (e.g. statistical_arb, contrarian, momentum)
@@ -241,6 +249,7 @@ fn main() -> Result<()> {
         Commands::Stake => cmd::stake::run(server)?,
         Commands::Result { market_id } => cmd::result::run(server, &market_id)?,
         Commands::History { limit } => cmd::history::run(server, limit as u32)?,
+        Commands::Outcomes { agent_id, limit } => cmd::outcomes::run(server, &agent_id, limit)?,
         Commands::SetPersona { persona } => cmd::set_persona::run(server, &persona)?,
         Commands::Orders { market, status, limit } => cmd::orders::run(server, market, &status, limit as u32)?,
         Commands::Cancel { order } => cmd::cancel::run(server, order)?,

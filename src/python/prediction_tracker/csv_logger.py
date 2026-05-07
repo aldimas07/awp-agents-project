@@ -17,7 +17,8 @@ CSV_HEADERS = [
     "timestamp", "agent_id", "iteration", "balance", "persona", "timeslot_used",
     "timeslot_resets_in", "market", "challenge_nonce", "llm_model",
     "submission_status", "filled_amount", "predicted_amount", "llm_response_time_s",
-    "submission_time_s", "error_message", "is_retry"
+    "submission_time_s", "error_message", "is_retry", "signal_score", "signal_bias",
+    "confidence", "confidence_threshold", "edge_reason", "invalid_if"
 ]
 
 def initialize_csv():
@@ -56,6 +57,18 @@ def parse_log_entry(log_line, agent_id, current_state):
     if llm_resp_match:
         current_state["llm_response_time_s"] = float(llm_resp_match.group(1))
 
+    feature_match = re.search(r"feature signal=(-?\d+) bias=(\w+) confidence_floor=(\d+\.?\d*) liquidity_ok=(\w+)", log_line)
+    if feature_match:
+        current_state["signal_score"] = int(feature_match.group(1))
+        current_state["signal_bias"] = feature_match.group(2)
+
+    decision_match = re.search(r"decision confidence=(\d+\.?\d*), threshold=(\d+\.?\d*), edge=(.*?), invalid_if=(.*)", log_line)
+    if decision_match:
+        current_state["confidence"] = float(decision_match.group(1))
+        current_state["confidence_threshold"] = float(decision_match.group(2))
+        current_state["edge_reason"] = decision_match.group(3)
+        current_state["invalid_if"] = decision_match.group(4)
+
     submission_result_match = re.search(r"submission result — status=(\w+), filled=(\d+)/(\d+)", log_line)
     if submission_result_match:
         data.update(current_state)
@@ -85,6 +98,15 @@ def parse_log_entry(log_line, agent_id, current_state):
         data["predicted_amount"] = 0
         return data
 
+    accuracy_skip_match = re.search(r"accuracy gate skipped submission: (.*)", log_line)
+    if accuracy_skip_match:
+        data.update(current_state)
+        data["submission_status"] = "skipped"
+        data["error_message"] = accuracy_skip_match.group(1)
+        data["filled_amount"] = 0
+        data["predicted_amount"] = 0
+        return data
+
     return None
 
 def follow_log_file(agent_id, log_file_path, last_position):
@@ -110,6 +132,7 @@ RECENT_WRITES_MAX_SIZE = 1000
 
 def write_to_csv(data_row):
     global RECENT_WRITES
+    ensure_csv_headers()
     entry_id = f"{data_row.get('agent_id')}_{data_row.get('timestamp')}_{data_row.get('submission_status')}"
     if entry_id in RECENT_WRITES:
         return
@@ -125,6 +148,28 @@ def write_to_csv(data_row):
                 RECENT_WRITES.pop()
         finally:
             fcntl.flock(f, fcntl.LOCK_UN)
+
+def ensure_csv_headers():
+    if not CSV_FILE.exists():
+        initialize_csv()
+        return
+    with open(CSV_FILE, newline='') as f:
+        reader = csv.reader(f)
+        existing = next(reader, [])
+        rows = list(reader)
+    if existing == CSV_HEADERS:
+        return
+    if all(header in existing for header in CSV_HEADERS):
+        return
+    merged = list(existing)
+    for header in CSV_HEADERS:
+        if header not in merged:
+            merged.append(header)
+    with open(CSV_FILE, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=merged)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({merged[i]: row[i] if i < len(row) else '' for i in range(len(merged))})
 
 def main():
     initialize_csv()

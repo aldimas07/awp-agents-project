@@ -35,6 +35,10 @@ fi
 while true; do
   echo "[Wrapper] Starting iteration for $AGENT_ID at $(date)"
   
+  if [ "${PREDICT_SYNC_OUTCOMES:-true}" != "false" ]; then
+    "$PROJECT_ROOT"/predict-agent outcomes --agent-id "$AGENT_ID" --limit "${PREDICT_OUTCOME_LIMIT:-500}" >/dev/null 2>&1 || true
+  fi
+
   # 1. Run hint generator (Python)
   python3 "$PROJECT_ROOT/src/python/prediction_tracker/hint_generator.py" --agent "$AGENT_ID"
   
